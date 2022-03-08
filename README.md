@@ -1,8 +1,6 @@
-# GAN-boilerplate
+# Microstructure Inpainter
 
-A boilerplate repo for GAN projects. Fork the repo when adapting for your own projects.
-
-This repo is geared towards GANs for material microstructure projects, where the generator learned to output a homogeneous image. However, it can be easily adapted to any GAN project.
+Cloned from GAN boilerplate...
 
 ## Folder structure
 
