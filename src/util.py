@@ -151,7 +151,7 @@ def make_mask(training_imgs, c):
     img_seed = seed+2
     img_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
-    D_size_dim = mask_size.min().item()//2
+    D_size_dim = int(mask_size.min()//32)*16
 
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
@@ -163,6 +163,12 @@ def make_mask(training_imgs, c):
     unmasked = torch.cat([unmasked, torch.zeros_like(unmasked[0]).unsqueeze(0)])
     mask_layer[:,x1:x2,y1:y2] = 1
     mask = torch.cat((mask, mask_layer[:,x1_bound:x2_bound, y1_bound:y2_bound]))
+    fig = plt.figure()
+    plotter = mask.permute(1,2,0).numpy().copy()
+    plotter[(img_size[0].item()-D_size_dim)//2:(img_size[0].item()+D_size_dim)//2,(img_size[1].item()-D_size_dim)//2:(img_size[1].item()+D_size_dim)//2,:] = 0
+    plt.imshow(plotter)
+    plt.savefig('data/mask_plot.png')
+    plt.close()
     plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
     plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
     return mask, unmasked, D_size_dim, img_size, img_seed

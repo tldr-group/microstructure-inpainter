@@ -153,15 +153,17 @@ class PainterWidget(QWidget):
             c = Config(tag)
             c.data_path = self.img_path
             c.mask_coords = (x1,x2,y1,y2)
-            overwrite = util.check_existence(tag)
+            # overwrite = util.check_existence(tag)
+            overwrite = True
             util.initialise_folders(tag, overwrite)
             training_imgs, nc = util.preprocess(c.data_path)
             mask, unmasked, dl, img_size, seed = util.make_mask(training_imgs, c)
             c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
             c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
+            # Use dl to update discrimantor network structure
             c = util.update_discriminator(c)
             netD, netG = make_nets_rect(c, overwrite)
-            train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=False, overwrite=True)
+            train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=True, overwrite=True)
         elif self.shape=='poly':
             pass
 
