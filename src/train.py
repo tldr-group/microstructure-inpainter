@@ -7,7 +7,7 @@ import torch.nn as nn
 import tifffile
 import time
 
-def train(c, Gen, Disc, offline=True, overwrite=True):
+def train_rect(c, Gen, Disc, training_imgs, nc, mask, unmasked, offline=True, overwrite=True):
     """[summary]
 
     :param c: [description]
@@ -33,10 +33,8 @@ def train(c, Gen, Disc, offline=True, overwrite=True):
     # Get train params
     l, dl, batch_size, beta1, beta2, num_epochs, iters, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
 
-    # Read in data
-    training_imgs, nc = preprocess(c.data_path)
-    mask = load_mask('data/mask.tif', device)
-    unmasked = load_mask('data/unmasked.tif', device)
+    # mask = load_mask('data/mask.tif', device)
+    # unmasked = load_mask('data/unmasked.tif', device)
     # Define Generator network
     netG = Gen().to(device)
     netD = Disc().to(device)
@@ -68,8 +66,7 @@ def train(c, Gen, Disc, offline=True, overwrite=True):
             netD.zero_grad()
 
             noise = make_noise(batch_size, nz, lz, device)
-            skeleton = mask.clone().unsqueeze(0).repeat(batch_size,1,1,1,1)
-            fake_data = netG(noise, skeleton).detach()
+            fake_data = netG(noise).detach()
             fake_data = crop(fake_data,dl)
             real_data = batch_real(training_imgs, dl, batch_size).to(device)
             # Train on real
@@ -97,9 +94,9 @@ def train(c, Gen, Disc, offline=True, overwrite=True):
                 netG.zero_grad()
                 noise = make_noise(batch_size, nz, lz, device)
                 # Forward pass through G with noise vector
-                skeleton = mask.clone().unsqueeze(0).repeat(batch_size,1,1,1,1)
-                fake_data = netG(noise, skeleton)
+                fake_data = netG(noise)
                 output = -netD(crop(fake_data, dl)).mean()
+                print(fake_data.shape, mask.shape)
                 pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
                 output += pw
                 # Calculate loss for G and backprop
@@ -127,8 +124,7 @@ def train(c, Gen, Disc, offline=True, overwrite=True):
                     # wandb_save_models(f'{path}/Disc.pt')
                     # wandb_save_models(f'{path}/Gen.pt')
                     noise = make_noise(batch_size, nz, lz, device)
-                    skeleton = mask.clone().unsqueeze(0).repeat(3,1,1,1,1)
-                    img = netG(noise, skeleton).detach()
+                    img = netG(noise).detach()
                     mse = pixel_wise_loss(img, mask, coeff=1, device=device)
                     plot_img(img, i, epoch, path, offline)
                     plot_examples(img, mask.clone(), unmasked.clone(), mse, offline)

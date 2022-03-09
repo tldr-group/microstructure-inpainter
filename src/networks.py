@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import pickle
 
 
-def make_nets(config, training=True):
+def make_nets_rect(config, training=True):
     """Creates Generator and Discriminator class objects from params either loaded from config object or params file.
 
     :param config: a Config class object 
@@ -30,11 +30,11 @@ def make_nets(config, training=True):
                 self.convs = nn.ModuleList()
                 self.bns = nn.ModuleList()
                 for lay, (k, s, p) in enumerate(zip(gk, gs, gp)):
-                    self.convs.append(nn.ConvTranspose3d(
+                    self.convs.append(nn.ConvTranspose2d(
                         gf[lay], gf[lay+1], k, s, p, bias=False))
-                    self.bns.append(nn.BatchNorm3d(gf[lay+1]))
+                    self.bns.append(nn.BatchNorm2d(gf[lay+1]))
 
-            def forward(self, x, mask):
+            def forward(self, x):
                 # x = torch.cat((x, mask[:,-1].reshape(x.shape)), dim=1)
                 for conv, bn in zip(self.convs[:-1], self.bns[:-1]):
                     x = F.relu_(bn(conv(x)))
@@ -48,7 +48,7 @@ def make_nets(config, training=True):
                 self.convs = nn.ModuleList()
                 for lay, (k, s, p) in enumerate(zip(dk, ds, dp)):
                     self.convs.append(
-                        nn.Conv3d(df[lay], df[lay + 1], k, s, p, bias=False))
+                        nn.Conv2d(df[lay], df[lay + 1], k, s, p, bias=False))
 
             def forward(self, x):
                 for conv in self.convs[:-1]:
