@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFi
 from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
 from PyQt5.QtCore import QPoint, QRect, QPointF
 import matplotlib.pyplot as plt
+from torch import seed
 from src.train import train_rect
 from config import Config
 from src.networks import make_nets_rect
@@ -155,9 +156,12 @@ class PainterWidget(QWidget):
             overwrite = util.check_existence(tag)
             util.initialise_folders(tag, overwrite)
             training_imgs, nc = util.preprocess(c.data_path)
-            mask, unmasked = util.make_mask(training_imgs, c.mask_coords)
+            mask, unmasked, dl, img_size, seed = util.make_mask(training_imgs, c)
+            c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
+            c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
+            c = util.update_discriminator(c)
             netD, netG = make_nets_rect(c, overwrite)
-            train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=True, overwrite=True)
+            train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=False, overwrite=True)
         elif self.shape=='poly':
             pass
 

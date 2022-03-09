@@ -1,3 +1,4 @@
+from time import sleep
 import numpy as np
 import torch
 from torch import autograd
@@ -132,14 +133,29 @@ def preprocess(data_path):
         img_oh[i][img == ph] = 1
     return img_oh, len(phases)
 
-def make_mask(training_imgs, mask_coords):
-    y1,y2,x1,x2 = mask_coords
+def calculate_size_from_seed(seed, c):
+    imsize = seed
+    for (k, s, p) in zip(c.gk, c.gs, c.gp):
+        imsize = (imsize-1)*s-2*p+k
+    return imsize
+
+def calculate_seed_from_size(imsize, c):
+    for (k, s, p) in zip(c.gk, c.gs, c.gp):
+        imsize = ((imsize-k+2*p)/s+1).round().to(int)
+    return imsize
+
+def make_mask(training_imgs, c):
+    y1,y2,x1,x2 = c.mask_coords
     ydiff, xdiff = y2-y1, x2-x1
-    maxdiff = np.max([ydiff, xdiff])
-    maxdiff=64
-    x2, y2 = x1+maxdiff, y1+maxdiff
-    x1_bound, x2_bound, y1_bound, y2_bound = x1-maxdiff//2, x2+maxdiff//2, y1-maxdiff//2, y2+maxdiff//2
-    
+    seed = calculate_seed_from_size(torch.tensor([xdiff, ydiff]).to(int), c)
+    img_seed = seed+2
+    img_size = calculate_size_from_seed(img_seed, c)
+    mask_size = calculate_size_from_seed(seed, c)
+    D_size_dim = mask_size.min().item()//2
+
+    x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
+    xmid, ymid = (x2+x1)//2, (y2+y1)//2
+    x1_bound, x2_bound, y1_bound, y2_bound = xmid-img_size[0].item()//2, xmid+img_size[0].item()//2, ymid-img_size[1].item()//2, ymid+img_size[1].item()//2
     unmasked = training_imgs[:,x1_bound:x2_bound, y1_bound:y2_bound].clone()
     training_imgs[:, x1:x2, y1:y2] = 0
     mask = training_imgs[:,x1_bound:x2_bound, y1_bound:y2_bound]
@@ -147,10 +163,37 @@ def make_mask(training_imgs, mask_coords):
     unmasked = torch.cat([unmasked, torch.zeros_like(unmasked[0]).unsqueeze(0)])
     mask_layer[:,x1:x2,y1:y2] = 1
     mask = torch.cat((mask, mask_layer[:,x1_bound:x2_bound, y1_bound:y2_bound]))
-
     plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
     plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
-    return mask, unmasked
+    return mask, unmasked, D_size_dim, img_size, img_seed
+
+def update_discriminator(c):
+    out = c.dl
+    layer = 0
+    dk = [4]
+    dp = [1]
+    ds = [2]
+    df = [c.n_phases]
+    while out != 1:
+        out_check = int(round((out+2*dp[layer]-dk[layer])/ds[layer]+1))
+        if out_check>1:
+            out = out_check
+            dk.append(4)
+            ds.append(2)
+            dp.append(1)
+            df.append(int(np.max([2**(layer+6), 512])))
+            layer += 1
+        elif out_check<1:
+            dp[layer] = int(round((2+dk[layer]-out)/2))
+        else:
+            out = out_check
+    df.append(1)
+    c.df = df
+    c.dk = dk
+    c.ds = ds
+    c.dp = dp
+    return c
+
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
@@ -212,7 +255,7 @@ def pixel_wise_loss(fake_img, real_img, coeff=1, device=None):
     mask = (mask[...,-1]==0).unsqueeze(0)
     mask = mask.repeat(fake_img.shape[0], fake_img.shape[1],1,1)
     fake_img = torch.where(mask==True, fake_img, torch.tensor(0).float().to(device))
-    real_img = real_img.unsqueeze(0).repeat(fake_img.shape[0], 1 ,1, 1)[:,0:3]
+    real_img = real_img.unsqueeze(0).repeat(fake_img.shape[0], 1 ,1, 1)[:,0:2]
     real_img = torch.where(mask==True, real_img, torch.tensor(0).float().to(device))
     return torch.nn.MSELoss(reduction='none')(fake_img, real_img)*coeff
 
@@ -294,7 +337,7 @@ def plot_img(img, iter, epoch, path, offline=True):
     """
     img = post_process(img)
     if not offline:
-        wandb.log({"slices": [wandb.Image(i[:, 31]) for i in img]})
+        wandb.log({"slices": [wandb.Image(i) for i in img]})
     else:
         pass
 
@@ -307,44 +350,44 @@ def plot_examples(img, mask, unmasked, mse, offline=True):
     :param slcs: [description], defaults to 4
     :type slcs: int, optional
     """
-    if not offline:
-        fig, ax = plt.subplots(2,3)
-        fig.suptitle('inpainting')
-        ax[0,0].set_title('Original')
-        ax[0,1].set_title('Mask')
-        ax[0,2].set_title('Original-masked')
-        ax[1,0].set_title('G output')
-        ax[1,1].set_title('Inpainted')
-        ax[1,2].set_title('MSE loss')
+    fig, ax = plt.subplots(2,3)
+    fig.suptitle('inpainting')
+    ax[0,0].set_title('Original')
+    ax[0,1].set_title('Mask')
+    ax[0,2].set_title('Original-masked')
+    ax[1,0].set_title('G output')
+    ax[1,1].set_title('Inpainted')
+    ax[1,2].set_title('MSE loss')
 
-        # ax[0,0].imshow(post_process(unmasked.unsqueeze(0))[0].permute(1,2,3,0).cpu()[32])
-        # ax[0,1].imshow(mask[-1, 32].cpu())
-        # ax[0,2].imshow(post_process(mask.unsqueeze(0))[0,0:3].permute(1,2,3,0).cpu()[32])
-        # ax[1,0].imshow(post_process(img)[0].permute(1,2,3,0).cpu()[32])
-        # ax[1,1].imshow(post_process(inpaint(img, unmasked))[0].permute(1,2,3,0).cpu()[32])
-        # ax[1,2].imshow(mse[0].permute(1,2,3,0).cpu()[32])
-        ax[0,0].imshow(post_process(unmasked.unsqueeze(0))[0].permute(1,2,0).cpu())
-        ax[0,1].imshow(mask[-1, 32].cpu())
-        ax[0,2].imshow(post_process(mask.unsqueeze(0))[0,0:3].permute(1,2,0).cpu())
-        ax[1,0].imshow(post_process(img)[0].permute(1,2,0).cpu())
-        ax[1,1].imshow(post_process(inpaint(img, unmasked))[0].permute(1,2,0).cpu())
-        ax[1,2].imshow(mse[0].permute(1,2,0).cpu())
-        fig.tight_layout()
-        wandb.log({"examples": wandb.Image(fig)})
-        plt.close()
+    # ax[0,0].imshow(post_process(unmasked.unsqueeze(0))[0].permute(1,2,3,0).cpu()[32])
+    # ax[0,1].imshow(mask[-1, 32].cpu())
+    # ax[0,2].imshow(post_process(mask.unsqueeze(0))[0,0:3].permute(1,2,3,0).cpu()[32])
+    # ax[1,0].imshow(post_process(img)[0].permute(1,2,3,0).cpu()[32])
+    # ax[1,1].imshow(post_process(inpaint(img, unmasked))[0].permute(1,2,3,0).cpu()[32])
+    # ax[1,2].imshow(mse[0].permute(1,2,3,0).cpu()[32])
+    ax[0,0].imshow(post_process(unmasked.unsqueeze(0))[0].permute(1,2,0).cpu())
+    ax[0,1].imshow(mask[-1].cpu())
+    ax[0,2].imshow(post_process(mask.unsqueeze(0))[0,0:3].permute(1,2,0).cpu())
+    ax[1,0].imshow(post_process(img)[0].permute(1,2,0).cpu())
+    ax[1,1].imshow(post_process(inpaint(img, mask))[0].permute(1,2,0).cpu())
+    # ax[1,2].imshow(mse[0].permute(1,2,0).cpu())
+    fig.tight_layout()
+    wandb.log({"examples": wandb.Image(fig)})
+    plt.close()
     
-def inpaint(fake_data, unmasked):
+def inpaint(fake_data, mask):
     l = fake_data.shape[2]
-    unmasked = unmasked.unsqueeze(0).repeat(fake_data.shape[0],1,1,1)
-    out = unmasked.clone()
-    out[:,:, l//4:3*l//4,l//4:3*l//4,4] = fake_data[:,:,l//4:3*l//4,l//4:3*l//4]
+    out = mask.clone().unsqueeze(0).repeat(fake_data.shape[0],1,1,1)
+    out = out[:,0:2]+fake_data*(out[:, -1].unsqueeze(1)!=0)
+    # out = unmasked[:,0:2].clone()
+    # out[:,:, l//4:3*l//4,l//4:3*l//4] = fake_data[:,:,l//4:3*l//4,l//4:3*l//4]
     return out
 
 def crop(fake_data, l):
     w = fake_data.shape[2]
     return fake_data[:,:,w//2-l//2:w//2+l//2,w//2-l//2:w//2+l//2]
 
-def make_noise(bs, nz, lz, device):
-    noise = torch.ones(bs, nz, lz, lz, device=device)
-    noise[:,:,lz//2,lz//2,] = torch.randn(bs,nz)
+def make_noise(bs, nz, seed_x, seed_y, device):
+    noise = torch.ones(bs, nz, seed_x, seed_y, device=device)
+    noise[:,:,seed_x//2,seed_y//2,] = torch.randn(bs,nz)
     return noise

@@ -43,7 +43,7 @@ class Config():
         self.dp = [1, 1, 1, 1, 1]
         self.gp = [1, 1, 1, 1, 1]
 
-        self.gs[0] = 1
+        # self.gs[0] = 1
 
     def save(self):
         j = {}
