@@ -7,10 +7,11 @@ class Config():
     def __init__(self, tag):
         self.tag = tag
         self.path = f'runs/{self.tag}'
-        self.data_path = 'data/nmc-1-cal-withcbd-w001-binarized.tif'
+        self.data_path = ''
+        self.mask_coords = []
         self.net_type = 'gan'
         self.l = 128
-        self.n_phases = 3
+        self.n_phases = 2
         # Training hyperparams
         self.batch_size = 8
         self.beta1 = 0.9
