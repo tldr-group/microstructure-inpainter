@@ -35,6 +35,8 @@ def train_rect(c, Gen, Disc, training_imgs, nc, mask, unmasked, offline=True, ov
 
     # mask = load_mask('data/mask.tif', device)
     # unmasked = load_mask('data/unmasked.tif', device)
+    mask = mask.to(device)
+    unmasked = unmasked.to(device)
     # Define Generator network
     netG = Gen().to(device)
     netD = Disc().to(device)
