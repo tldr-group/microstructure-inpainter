@@ -3,9 +3,9 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFi
 from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
 from PyQt5.QtCore import QPoint, QRect, QPointF
 import matplotlib.pyplot as plt
-from src.train import train
+from src.train import train_rect
 from config import Config
-from src.networks import make_nets
+from src.networks import make_nets_rect
 import src.util as util
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -156,8 +156,8 @@ class PainterWidget(QWidget):
             util.initialise_folders(tag, overwrite)
             training_imgs, nc = util.preprocess(c.data_path)
             mask, unmasked = util.make_mask(training_imgs, c.mask_coords)
-            netD, netG = make_nets(c, overwrite)
-            train(c, netG, netD, training_imgs, nc, mask, unmasked, offline=True, overwrite=True)
+            netD, netG = make_nets_rect(c, overwrite)
+            train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=True, overwrite=True)
         elif self.shape=='poly':
             pass
 
