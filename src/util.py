@@ -140,8 +140,9 @@ def calculate_size_from_seed(seed, c):
     return imsize
 
 def calculate_seed_from_size(imsize, c):
+    print(imsize)
     for (k, s, p) in zip(c.gk, c.gs, c.gp):
-        imsize = ((imsize-k+2*p)/s+1).ceil().to(int)
+        imsize = ((imsize-k+2*p)/s+1).to(int)
     return imsize
 
 def make_mask(training_imgs, c):
@@ -208,14 +209,15 @@ def update_discriminator(c):
     return c
 
 def update_pixmap_rect(raw, img, c):
-    updated_pixmap = raw.clone()
+    updated_pixmap = raw.clone().unsqueeze(0)
     x1, x2, y1, y2 = c.mask_coords
     lx, ly = c.mask_size
     x_1, x_2, y_1, y_2 = (img.shape[2]-lx)//2,(img.shape[2]+lx)//2, (img.shape[3]-ly)//2, (img.shape[3]+ly)//2
-    updated_pixmap[:, x1:x2, y1:y2] = img[0][:,x_1:x_2, y_1:y_2]
+    updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     # updated_pixmap = torch.cat((updated_pixmap, torch.zeros((updated_pixmap.shape[1], updated_pixmap.shape[2])).unsqueeze(0))).permute(1,2,0).numpy()
     # TODO add postprocess function
-    plt.imsave('data/temp.png', updated_pixmap[1])
+    updated_pixmap = post_process(updated_pixmap)
+    plt.imsave('data/temp.png', updated_pixmap[0,1])
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
@@ -291,7 +293,7 @@ def pixel_wise_loss(fake_img, real_img, coeff=1, device=None):
     return torch.nn.MSELoss(reduction='none')(fake_img, real_img)*coeff
 
 # Evaluation util
-def post_process(img, phases=[0,1,2]):
+def post_process(img, phases=[0,1]):
     """Turns a n phase image (bs, n, imsize, imsize) into a plottable euler image (bs, 3, imsize, imsize, imsize)
 
     :param img: a tensor of the n phase img
@@ -418,7 +420,7 @@ def crop(fake_data, l):
     w = fake_data.shape[2]
     return fake_data[:,:,w//2-l//2:w//2+l//2,w//2-l//2:w//2+l//2]
 
-def make_noise(bs, nz, seed_x, seed_y, device):
-    noise = torch.ones(bs, nz, seed_x, seed_y, device=device)
+def make_noise(noise, bs, nz, seed_x, seed_y, device):
+    # noise = torch.ones(bs, nz, seed_x, seed_y, device=device)
     noise[:,:,seed_x//2,seed_y//2,] = torch.randn(bs,nz)
     return noise

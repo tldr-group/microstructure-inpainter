@@ -33,15 +33,15 @@ class Config():
             self.device_name = 'cpu'
         self.nz = 100
         # Architecture
-        self.lays = 5
+        self.lays = 4
         self.laysd = 5
         # kernel sizes
         self.dk, self.gk = [4]*self.laysd, [4]*self.lays
         self.ds, self.gs = [2]*self.laysd, [2]*self.lays
         self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
-            self.nz, 512, 256, 128, 64, self.n_phases]
+            self.nz, 512, 256, 128, self.n_phases]
         self.dp = [1, 1, 1, 1, 1]
-        self.gp = [1, 1, 1, 1, 1]
+        self.gp = [1, 1, 1, 1]
 
         # self.gs[0] = 1
 
