@@ -35,6 +35,8 @@ def train_rect(c, Gen, Disc, training_imgs, nc, mask, unmasked, offline=True, ov
 
     # mask = load_mask('data/mask.tif', device)
     # unmasked = load_mask('data/unmasked.tif', device)
+    mask = mask.to(device)
+    unmasked = unmasked.to(device)
     # Define Generator network
     netG = Gen().to(device)
     netD = Disc().to(device)
@@ -65,7 +67,7 @@ def train_rect(c, Gen, Disc, training_imgs, nc, mask, unmasked, offline=True, ov
             
             netD.zero_grad()
 
-            noise = make_noise(batch_size, nz, lz, device)
+            noise = make_noise(batch_size, nz, c.seed_x, c.seed_y, device)
             fake_data = netG(noise).detach()
             fake_data = crop(fake_data,dl)
             real_data = batch_real(training_imgs, dl, batch_size).to(device)
@@ -92,11 +94,10 @@ def train_rect(c, Gen, Disc, training_imgs, nc, mask, unmasked, offline=True, ov
             # Generator training
             if (i % int(critic_iters)) == 0:
                 netG.zero_grad()
-                noise = make_noise(batch_size, nz, lz, device)
+                noise = make_noise(batch_size, nz, c.seed_x, c.seed_y, device)
                 # Forward pass through G with noise vector
                 fake_data = netG(noise)
                 output = -netD(crop(fake_data, dl)).mean()
-                print(fake_data.shape, mask.shape)
                 pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
                 output += pw
                 # Calculate loss for G and backprop
@@ -123,7 +124,7 @@ def train_rect(c, Gen, Disc, training_imgs, nc, mask, unmasked, offline=True, ov
                     torch.save(netD.state_dict(), f'{path}/Disc.pt')
                     # wandb_save_models(f'{path}/Disc.pt')
                     # wandb_save_models(f'{path}/Gen.pt')
-                    noise = make_noise(batch_size, nz, lz, device)
+                    noise = make_noise(batch_size, nz, c.seed_x, c.seed_y, device)
                     img = netG(noise).detach()
                     mse = pixel_wise_loss(img, mask, coeff=1, device=device)
                     plot_img(img, i, epoch, path, offline)

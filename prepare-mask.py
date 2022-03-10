@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QMenuBar, QAction, QComboBox
 from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
-from PyQt5.QtCore import QPoint, QRect, QPointF
+from PyQt5.QtCore import QPoint, QRect, QPointF, QObject, QThread, pyqtSignal
 import matplotlib.pyplot as plt
 from sympy import re
 from src.train import train_rect, train_poly
@@ -25,6 +25,25 @@ class MainWindow(QMainWindow):
         self.setGeometry(30,30,self.painter_widget.image.width(),self.painter_widget.image.height())
         self.show()
 
+
+class Worker(QObject):
+    def __init__(self, c, netG, netD, training_imgs, nc, mask, unmasked):
+        super().__init__()
+        self.c = c
+        self.netG = netG
+        self.netD = netD
+        self.training_imgs = training_imgs,
+        self.nc = nc
+        self.mask = mask
+        self.unmasked = unmasked
+        
+    finished = pyqtSignal()
+    progress = pyqtSignal(int)
+
+    def run(self, ):
+        """Long-running task."""
+        
+        train_rect(self.c, self.netG, self.netD, self.training_imgs, self.nc, self.mask, self.unmasked, offline=True, overwrite=True)
 
 class PainterWidget(QWidget):
     def __init__(self, parent):
@@ -139,6 +158,7 @@ class PainterWidget(QWidget):
         self.update()
 
     def onTrainClick(self, event):
+
         if self.shape=='rect':
             x1, x2, y1, y2 = self.begin.x(), self.end.x(), self.begin.y(), self.end.y()
             # get relative coordinates
@@ -155,12 +175,18 @@ class PainterWidget(QWidget):
             c = Config(tag)
             c.data_path = self.img_path
             c.mask_coords = (x1,x2,y1,y2)
-            overwrite = util.check_existence(tag)
+            # overwrite = util.check_existence(tag)
+            overwrite = True
             util.initialise_folders(tag, overwrite)
             training_imgs, nc = util.preprocess(c.data_path)
-            mask, unmasked = util.make_mask(training_imgs, c.mask_coords)
+            mask, unmasked, dl, img_size, seed = util.make_mask(training_imgs, c)
+            c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
+            c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
+            # Use dl to update discrimantor network structure
+            c = util.update_discriminator(c)
             netD, netG = make_nets_rect(c, overwrite)
-            train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=True, overwrite=True)
+            self.worker = Worker(c, netG, netD, training_imgs, nc, mask, unmasked)
+            
         elif self.shape=='poly':
             tag = 'test'
             c = ConfigPoly(tag)
@@ -194,6 +220,22 @@ class PainterWidget(QWidget):
             train_poly(c, netG, netD, real_seeds, mask, poly_rects, offline=True, overwrite=overwrite)
             # plt.imsave('mask.png', mask)
             # plt.imsave('real_data_seeds.png', rect_mask)
+
+            
+            
+        self.thread = QThread()
+        # Step 3: Create a worker object
+        # Step 4: Move worker to the thread
+        self.worker.moveToThread(self.thread)
+        # Step 5: Connect signals and slots
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        # self.worker.progress.connect(self.reportProgress)
+        # Step 6: Start the thread
+        self.thread.start()
+
 
 def main():
 
