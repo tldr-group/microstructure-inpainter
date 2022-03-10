@@ -192,6 +192,15 @@ def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_
     gradients = gradients.view(gradients.size(0), -1)
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * gp_lambda
     return gradient_penalty
+def batch_real_poly(img, l, bs, real_seeds):
+    n_ph, _, _ = img.shape
+    max_idx = len(real_seeds[0])
+    idxs = torch.randint(max_idx, (bs,))
+    data = torch.zeros((bs, n_ph, l, l))
+    for i, idx in enumerate(idxs):
+        x, y = real_seeds[0][idx], real_seeds[1][idx]
+        data[i] = img[:, x:x+l, y:y+l]
+    return data
 
 def batch_real(img, l, bs):
     """[summary]
@@ -296,7 +305,7 @@ def plot_img(img, iter, epoch, path, offline=True):
     if not offline:
         wandb.log({"slices": [wandb.Image(i[:, 31]) for i in img]})
     else:
-        pass
+        plt.imsave(f'{path}/test.png', img[0][:, 31])
 
 
 def plot_examples(img, mask, unmasked, mse, offline=True):

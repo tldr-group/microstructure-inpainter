@@ -3,10 +3,14 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFi
 from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
 from PyQt5.QtCore import QPoint, QRect, QPointF
 import matplotlib.pyplot as plt
-from src.train import train_rect
-from config import Config
+from sympy import re
+from src.train import train_rect, train_poly
+from config import Config, ConfigPoly
 from src.networks import make_nets_rect
 import src.util as util
+from matplotlib.path import Path
+import numpy as np
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -132,7 +136,6 @@ class PainterWidget(QWidget):
         self.poly = []
         self.old_polys = []
         self.shape = self.selectorBox.currentText()
-        print(self.shape)
         self.update()
 
     def onTrainClick(self, event):
@@ -159,8 +162,38 @@ class PainterWidget(QWidget):
             netD, netG = make_nets_rect(c, overwrite)
             train_rect(c, netG, netD, training_imgs, nc, mask, unmasked, offline=True, overwrite=True)
         elif self.shape=='poly':
-            pass
-
+            tag = 'test'
+            c = ConfigPoly(tag)
+            c.data_path = self.img_path
+            r = self.image.rect()
+            w = self.frameGeometry().width()
+            h = self.frameGeometry().height()
+            rh, rw = r.height(), r.width()
+            new_polys = [[(point.x()*rw/w, point.y()*rh/h) for point in poly] for poly in self.old_polys]
+            x, y = np.meshgrid(np.arange(w), np.arange(h)) # make a canvas with coordinates
+            x, y = x.flatten(), y.flatten()
+            points = np.vstack((x,y)).T
+            mask = np.zeros((h,w))
+            poly_rects = []
+            for poly in new_polys: 
+                p = Path(poly) # make a polygon
+                grid = p.contains_points(points)
+                mask += grid.reshape(h, w)
+                xs, ys = [point[0] for point in poly], [point[0] for point in poly]
+                poly_rects.append((np.min(xs), np.min(ys), np.max(xs),np.max(ys)))
+            seeds_mask = np.zeros((h,w))
+            for x in range(c.l):
+                for y in range(c.l):
+                    seeds_mask += np.roll(np.roll(mask, -x, 0), -y, 1)
+            seeds_mask[seeds_mask>1]=1
+            real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
+            overwrite = util.check_existence(tag)
+            util.initialise_folders(tag, overwrite)
+            netD, netG = make_nets_rect(c, overwrite)
+            print('training')
+            train_poly(c, netG, netD, real_seeds, mask, poly_rects, offline=True, overwrite=overwrite)
+            # plt.imsave('mask.png', mask)
+            # plt.imsave('real_data_seeds.png', rect_mask)
 
 def main():
 

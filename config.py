@@ -65,3 +65,20 @@ class Config():
         return self.l, self.dl, self.batch_size, self.beta1, self.beta2, self.num_epochs, self.iters, self.lrg, self.lr, self.Lambda, self.critic_iters, self.lz, self.nz
 
 
+class ConfigPoly(Config):
+    def __init__(self, tag):
+        super(ConfigPoly, self).__init__(tag)
+        self.l = 64
+        self.lz = 4
+        self.ngpu=1
+        self.lays = 5
+        self.laysd = 5
+        # kernel sizes
+        self.dk, self.gk = [4]*self.laysd, [4]*self.lays
+        self.ds, self.gs = [2]*self.laysd, [2]*self.lays
+        self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
+            self.nz, 512, 256, 128, 64, self.n_phases]
+        self.dp = [1, 1, 1, 1, 0]
+        self.gp = [2, 2, 2, 2, 3]
+    def get_train_params(self):
+        return self.l, self.batch_size, self.beta1, self.beta2, self.num_epochs, self.iters, self.lrg, self.lr, self.Lambda, self.critic_iters, self.lz, self.nz
