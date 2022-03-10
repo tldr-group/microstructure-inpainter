@@ -1,10 +1,11 @@
 import sys
-from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QMenuBar, QAction, QComboBox
+from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QMenuBar, QAction, QComboBox, QLabel
 from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
 from PyQt5.QtCore import QPoint, QRect, QPointF, QObject, QThread, pyqtSignal
 import matplotlib.pyplot as plt
 from sympy import re
-from src.train import train_rect, train_poly
+from src.train_poly import PolyWorker
+from src.train_rect import RectWorker
 from config import Config, ConfigPoly
 from src.networks import make_nets_rect
 import src.util as util
@@ -25,26 +26,6 @@ class MainWindow(QMainWindow):
         self.setGeometry(30,30,self.painter_widget.image.width(),self.painter_widget.image.height())
         self.show()
 
-
-class Worker(QObject):
-    def __init__(self, c, netG, netD, training_imgs, nc, mask, unmasked):
-        super().__init__()
-        self.c = c
-        self.netG = netG
-        self.netD = netD
-        self.training_imgs = training_imgs,
-        self.nc = nc
-        self.mask = mask
-        self.unmasked = unmasked
-        
-    finished = pyqtSignal()
-    progress = pyqtSignal(int)
-
-    def run(self, ):
-        """Long-running task."""
-        
-        train_rect(self.c, self.netG, self.netD, self.training_imgs, self.nc, self.mask, self.unmasked, offline=True, overwrite=True)
-
 class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
@@ -57,7 +38,7 @@ class PainterWidget(QWidget):
         self.old_polys = []
         self.begin = QPoint()
         self.end = QPoint()
-
+        self.step_label = QLabel('0')
         loadAct = QAction('Load', self)
         loadAct.setStatusTip('Load new image from file')
         loadAct.triggered.connect(self.onLoadClick)
@@ -75,9 +56,15 @@ class PainterWidget(QWidget):
         selector = parent.addToolBar("Selector")
         selector.addWidget(self.selectorBox)
         self.selectorBox.activated[str].connect(self.onShapeSelected)
+
+        label = parent.addToolBar('Step Label')
+        label.addWidget(self.step_label)
+
         self.show()
+     
 
 
+        
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
@@ -185,7 +172,7 @@ class PainterWidget(QWidget):
             # Use dl to update discrimantor network structure
             c = util.update_discriminator(c)
             netD, netG = make_nets_rect(c, overwrite)
-            self.worker = Worker(c, netG, netD, training_imgs, nc, mask, unmasked)
+            self.worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
             
         elif self.shape=='poly':
             tag = 'test'
@@ -213,11 +200,12 @@ class PainterWidget(QWidget):
                     seeds_mask += np.roll(np.roll(mask, -x, 0), -y, 1)
             seeds_mask[seeds_mask>1]=1
             real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
-            overwrite = util.check_existence(tag)
+            overwrite = True
             util.initialise_folders(tag, overwrite)
             netD, netG = make_nets_rect(c, overwrite)
             print('training')
-            train_poly(c, netG, netD, real_seeds, mask, poly_rects, offline=True, overwrite=overwrite)
+            self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, overwrite)
+
             # plt.imsave('mask.png', mask)
             # plt.imsave('real_data_seeds.png', rect_mask)
 
@@ -226,17 +214,20 @@ class PainterWidget(QWidget):
         self.thread = QThread()
         # Step 3: Create a worker object
         # Step 4: Move worker to the thread
+        self.worker.painter = self
         self.worker.moveToThread(self.thread)
         # Step 5: Connect signals and slots
-        self.thread.started.connect(self.worker.run)
+        self.thread.started.connect(self.worker.train)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
         self.thread.finished.connect(self.thread.deleteLater)
-        # self.worker.progress.connect(self.reportProgress)
+        self.worker.progress.connect(self.progress)
         # Step 6: Start the thread
         self.thread.start()
 
-
+    def progress(self, l):
+        self.step_label.setText(f'{l}')
+        self.image = QPixmap("data/temp.png")
 def main():
 
     app = QApplication(sys.argv)
