@@ -166,7 +166,7 @@ class PainterWidget(QWidget):
             overwrite = True
             util.initialise_folders(tag, overwrite)
             training_imgs, nc = util.preprocess(c.data_path)
-            mask, unmasked, dl, img_size, seed = util.make_mask(training_imgs, c)
+            mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
             c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
             c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
             # Use dl to update discrimantor network structure

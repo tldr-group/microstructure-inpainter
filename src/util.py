@@ -141,7 +141,7 @@ def calculate_size_from_seed(seed, c):
 
 def calculate_seed_from_size(imsize, c):
     for (k, s, p) in zip(c.gk, c.gs, c.gp):
-        imsize = ((imsize-k+2*p)/s+1).round().to(int)
+        imsize = ((imsize-k+2*p)/s+1).ceil().to(int)
     return imsize
 
 def make_mask(training_imgs, c):
@@ -151,7 +151,7 @@ def make_mask(training_imgs, c):
     img_seed = seed+2
     img_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
-    D_size_dim = int(mask_size.min()//32)*16
+    D_size_dim = int(torch.div(mask_size.min(),32, rounding_mode='floor'))*16
 
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
@@ -163,15 +163,22 @@ def make_mask(training_imgs, c):
     unmasked = torch.cat([unmasked, torch.zeros_like(unmasked[0]).unsqueeze(0)])
     mask_layer[:,x1:x2,y1:y2] = 1
     mask = torch.cat((mask, mask_layer[:,x1_bound:x2_bound, y1_bound:y2_bound]))
-    fig = plt.figure()
+
+    # save coords to c
+    c.mask_coords = (x1,x2,y1,y2)
+    c.mask_size = (mask_size[0].item(), mask_size[1].item())
+    
+    # plot regions where discriminated
+    plt.figure()
     plotter = mask.permute(1,2,0).numpy().copy()
     plotter[(img_size[0].item()-D_size_dim)//2:(img_size[0].item()+D_size_dim)//2,(img_size[1].item()-D_size_dim)//2:(img_size[1].item()+D_size_dim)//2,:] = 0
     plt.imshow(plotter)
     plt.savefig('data/mask_plot.png')
     plt.close()
+
     plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
     plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
-    return mask, unmasked, D_size_dim, img_size, img_seed
+    return mask, unmasked, D_size_dim, img_size, img_seed, c
 
 def update_discriminator(c):
     out = c.dl
@@ -200,6 +207,15 @@ def update_discriminator(c):
     c.dp = dp
     return c
 
+def update_pixmap_rect(raw, img, c):
+    updated_pixmap = raw.clone()
+    x1, x2, y1, y2 = c.mask_coords
+    lx, ly = c.mask_size
+    x_1, x_2, y_1, y_2 = (img.shape[2]-lx)//2,(img.shape[2]+lx)//2, (img.shape[3]-ly)//2, (img.shape[3]+ly)//2
+    updated_pixmap[:, x1:x2, y1:y2] = img[0][:,x_1:x_2, y_1:y_2]
+    # updated_pixmap = torch.cat((updated_pixmap, torch.zeros((updated_pixmap.shape[1], updated_pixmap.shape[2])).unsqueeze(0))).permute(1,2,0).numpy()
+    # TODO add postprocess function
+    plt.imsave('data/temp.png', updated_pixmap[1])
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
