@@ -150,7 +150,7 @@ class PolyWorker(QObject):
     def inpaint(self, netG):
         img = preprocess(self.c.data_path)[0]
         final_img = torch.argmax(img, dim=0)
-        final_imgs = [final_img for i in range(10)]
+        final_imgs = [torch.argmax(img, dim=0) for i in range(20)]
         final_img_fresh = torch.argmax(img, dim=0)
         print(f'inpainting {len(self.poly_rects)} patches')
         for rect in self.poly_rects:
@@ -180,8 +180,8 @@ class PolyWorker(QObject):
         target = target.unsqueeze(0)
         noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
         opt = torch.optim.SGD(params=noise, lr=1)
-        iters=200
-        save = iters//10
+        iters=500
+        save = iters//20
         inpaints = []
         for i in range(iters):
             raw = netG(noise[0])

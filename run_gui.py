@@ -1,7 +1,7 @@
 import sys
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QMenuBar, QAction, QComboBox, QLabel
 from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
-from PyQt5.QtCore import QPoint, QRect, QPointF, QObject, QThread, pyqtSignal
+from PyQt5.QtCore import QPoint, QRect, QPointF, QObject, QThread, pyqtSignal, QTimeLine
 import matplotlib.pyplot as plt
 from sympy import re
 from src.train_poly import PolyWorker
@@ -11,7 +11,7 @@ from src.networks import make_nets_rect
 import src.util as util
 from matplotlib.path import Path
 import numpy as np
-
+import time
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -78,16 +78,24 @@ class PainterWidget(QWidget):
         label = parent.addToolBar('Step Label')
         label.addWidget(self.step_label)
 
+        timeLine = QTimeLine(3000, self)
+        timeLine.setFrameRange(0, 19)
+        timeLine.frameChanged[int].connect(self.show_next_img)
+        self.timeline = timeLine
+
         self.show()
      
 
 
+    def show_next_img(self, i):
+        self.setPixmap(f"data/temp{i}.png")
         
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
         # self.setGeometry(30,30,600,400)
         self.resize(self.image.width(), self.image.height())
+        self.update()
         self.show()
 
 
@@ -162,7 +170,7 @@ class PainterWidget(QWidget):
     def onBorderClick(self, event):
         self.border = 0 if self.border else 1
         self.update()
-        
+
     def onShapeSelected(self, event):
         self.begin = QPoint()
         self.end = QPoint()
@@ -258,7 +266,11 @@ class PainterWidget(QWidget):
 
     def progress(self, l, e, mse):
         self.step_label.setText(f'Iter: {l}, Epoch: {e}, MSE: {mse:.2g}')
-        self.image = QPixmap("data/temp.png")
+        if self.shape=='poly':
+            self.timeline.start()
+            self.setPixmap('data/temp9.png')
+        else:
+            self.image = QPixmap("data/temp.png")
     
     def stop_train(self):
         print('Stopping training')
