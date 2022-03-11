@@ -36,6 +36,7 @@ class PainterWidget(QWidget):
         self.shape = 'rect'
         self.poly = []
         self.old_polys = []
+        self.border = True
         self.begin = QPoint()
         self.end = QPoint()
         self.step_label = QLabel('Iter: 0, Epoch: 0, MSE: 0')
@@ -59,6 +60,12 @@ class PainterWidget(QWidget):
         trainAct.triggered.connect(self.onTrainClick)
         trainer = parent.addToolBar('&Train')
         trainer.addAction(trainAct)
+
+        borderAct = QAction('Border', self)
+        borderAct.setStatusTip('Toggle patch border')
+        borderAct.triggered.connect(self.onBorderClick)
+        border = parent.addToolBar('&Border')
+        border.addAction(borderAct)
 
         self.selectorBox = QComboBox()
         self.selectorBox.insertItems(1,['rectangle', 'poly'])
@@ -97,16 +104,16 @@ class PainterWidget(QWidget):
         self.resize(self.image.width(), self.image.height())
         qp.drawPixmap(self.rect(), self.image)
         br = QBrush(QColor(100, 10, 10, 10))  
-        pen = QPen(QColor(0, 0, 0, 255), 3)
+        pen = QPen(QColor(0, 0, 0, 255), 1.5)
         qp.setBrush(br)
         qp.setPen(pen)
-
-        if self.shape=='rect':  
-            qp.drawRect(QRect(self.begin, self.end))     
-        else:
-            for p in self.old_polys:
-                qp.drawPolygon(self.createPoly(p))
-            qp.drawPolygon(self.createPoly(self.poly))
+        if self.border:
+            if self.shape=='rect':  
+                qp.drawRect(QRect(self.begin, self.end))     
+            else:
+                for p in self.old_polys:
+                    qp.drawPolygon(self.createPoly(p))
+                qp.drawPolygon(self.createPoly(self.poly))
   
     def createPoly(self, polypoints):
         polygon = QPolygonF()                                                     
@@ -115,40 +122,47 @@ class PainterWidget(QWidget):
         return polygon
 
     def mousePressEvent(self, event):
-        self.begin = event.pos()
-        self.end = event.pos()
-        if self.shape == 'poly':
-            if len(self.poly)==0:
-                self.poly.append(self.begin)
-            self.poly.append(self.end)
-            self.setMouseTracking(True)
-        self.update()
+        if not self.training:
+            self.begin = event.pos()
+            self.end = event.pos()
+            if self.shape == 'poly':
+                if len(self.poly)==0:
+                    self.poly.append(self.begin)
+                self.poly.append(self.end)
+                self.setMouseTracking(True)
+            self.update()
 
     def mouseDoubleClickEvent(self,event):
-        if self.shape == 'poly':
-            if len(self.poly)==0:
-                self.poly.append(self.begin)
-            self.poly.append(self.end)
-            self.setMouseTracking(False)
-            self.old_polys.append(self.poly)
-            self.poly = []
-        self.update()
+        if not self.training:
+            if self.shape == 'poly':
+                if len(self.poly)==0:
+                    self.poly.append(self.begin)
+                self.poly.append(self.end)
+                self.setMouseTracking(False)
+                self.old_polys.append(self.poly)
+                self.poly = []
+            self.update()
         
     def mouseMoveEvent(self, event):
-        self.end = event.pos()
-        if self.shape == 'poly':
-            try:
-                self.poly[-1] = self.end
-            except:
-                pass
-        if self.shape == 'rect':
-            self.end = ((self.end-self.begin)/16) *16+self.begin
-        self.update()
+        if not self.training:
+            self.end = event.pos()
+            if self.shape == 'poly':
+                try:
+                    self.poly[-1] = self.end
+                except:
+                    pass
+            if self.shape == 'rect':
+                self.end = ((self.end-self.begin)/16) *16+self.begin
+            self.update()
 
     def onLoadClick(self, event):
         self.openFileNamesDialog()
         self.show()
 
+    def onBorderClick(self, event):
+        self.border = 0 if self.border else 1
+        self.update()
+        
     def onShapeSelected(self, event):
         self.begin = QPoint()
         self.end = QPoint()
@@ -159,6 +173,7 @@ class PainterWidget(QWidget):
 
     def onTrainClick(self, event):
         self.training = True
+
         self.stopTrain.show()
         if self.shape=='rect':
             x1, x2, y1, y2 = self.begin.x(), self.end.x(), self.begin.y(), self.end.y()
@@ -190,7 +205,7 @@ class PainterWidget(QWidget):
             
         elif self.shape=='poly':
             if len(self.old_polys) ==0:
-                return
+                self.training=False
             tag = 'test'
             c = ConfigPoly(tag)
             c.data_path = self.img_path
@@ -247,6 +262,7 @@ class PainterWidget(QWidget):
     
     def stop_train(self):
         print('Stopping training')
+        self.training = False
         self.thread.quit()
         self.worker.deleteLater()
         self.thread.deleteLater()

@@ -26,7 +26,7 @@ class Config():
         self.lz = 7
         self.lf = 7
         self.dl = 32
-        self.ngpu = 2
+        self.ngpu = 1
         if self.ngpu > 0:
             self.device_name = "cuda:0"
         else:

@@ -4,3 +4,6 @@ venv
 runs
 wandb
 optim
+data/temp*
+*png
+*json
