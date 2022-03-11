@@ -112,7 +112,7 @@ def wandb_save_models(fn):
     wandb.save(fn)
 
 # training util
-def preprocess(data_path):
+def preprocess(data_path, load=True):
     """[summary]
 
     :param imgs: [description]
@@ -121,7 +121,10 @@ def preprocess(data_path):
     :rtype: [type]
     """
     # img = tifffile.imread(data_path)
-    img = plt.imread(data_path)[...,0]
+    if load:
+        img = plt.imread(data_path)[...,0]
+    else:
+        img = data_path[...,0]
     phases = np.unique(img)
     if len(phases) > 10:
         raise AssertionError('Image not one hot encoded.')
@@ -294,7 +297,7 @@ def post_process(img, phases=[0,1,2]):
         for i, ph in enumerate(phases):
             img_oh[b,i][img[b] == ph] = 1
     return img_oh
-
+    
 def generate(c, netG, skeleton):
     """Generate an instance from generator, save to .tif
 

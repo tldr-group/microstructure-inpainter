@@ -175,6 +175,8 @@ class PainterWidget(QWidget):
             self.worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
             
         elif self.shape=='poly':
+            if len(self.old_polys) ==0:
+                return
             tag = 'test'
             c = ConfigPoly(tag)
             c.data_path = self.img_path
@@ -192,7 +194,7 @@ class PainterWidget(QWidget):
                 p = Path(poly) # make a polygon
                 grid = p.contains_points(points)
                 mask += grid.reshape(h, w)
-                xs, ys = [point[0] for point in poly], [point[0] for point in poly]
+                xs, ys = [point[1] for point in poly], [point[0] for point in poly]
                 poly_rects.append((np.min(xs), np.min(ys), np.max(xs),np.max(ys)))
             seeds_mask = np.zeros((h,w))
             for x in range(c.l):

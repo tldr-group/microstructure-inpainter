@@ -135,20 +135,57 @@ class PolyWorker(QObject):
 
 
                 # Every 50 iters log images and useful metrics
-                if i % 50 == 0:
+                if i % 100 == 0:
                     
-                    with torch.no_grad():
-                        
-                        torch.save(netD.state_dict(), f'{path}/Disc.pt')
-                        # wandb_save_models(f'{path}/Disc.pt')
-                        # wandb_save_models(f'{path}/Gen.pt')
-                        noise = torch.randn(3, nz, lz, lz, device=device)
-                        img = netG(noise).detach()
-                        plot_img(img, i, epoch, path, offline)
-                        progress(i, iters, epoch, num_epochs,
-                                    timed=np.mean(times))
-                        self.progress.emit(i)
-                        times = []
-                        plt.imsave(f'data/temp.png', np.ones((50,50)))
+                    torch.save(netG.state_dict(), f'{path}/Gen.pt')
+                    torch.save(netD.state_dict(), f'{path}/Disc.pt')
+                    # wandb_save_models(f'{path}/Disc.pt')
+                    # wandb_save_models(f'{path}/Gen.pt')
+                    self.inpaint(netG)
+                    self.progress.emit(i)
+                    times = []
 
         self.finish.emit()
+
+    def inpaint(self, netG):
+        img = preprocess(self.c.data_path)[0]
+        final_img = torch.argmax(img, dim=0)
+        final_img_fresh = torch.argmax(img, dim=0)
+        print(f'inpainting {len(self.poly_rects)} patches')
+        for rect in self.poly_rects:
+            x0, y0, x1, y1 = (int(i) for i in rect)
+            w, h = x1-x0, y1-y0
+            x1 += 32 - w%32
+            y1 += 32 - h%32
+            w, h = x1-x0, y1-y0
+            im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
+            mask_crop = self.mask[x0-16:x1+16, y0-16:y1+16]
+            c, w, h = im_crop.shape
+            lx, ly = int(w/32) + 2, int(h/32) + 2
+            inpaint = self.optimise_noise(lx, ly, im_crop, mask_crop, netG)
+            final_img[x0:x1,  y0:y1] = inpaint
+        final_img[self.mask==0] = final_img_fresh[self.mask==0]
+        final_img = (final_img.numpy()/final_img.max())
+        plt.imsave(f'data/temp.png', np.stack([final_img for i in range(3)], -1))
+        
+    def optimise_noise(self, lx, ly, img, mask, netG):
+        netG.eval()
+        target = img.cuda()
+        device = torch.device("cuda:0" if(
+            torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
+        target[:, mask] = -1
+        target = target.unsqueeze(0)
+        noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
+        opt = torch.optim.SGD(params=noise, lr=1)
+        iters=200
+        for i in range(iters):
+            raw = netG(noise[0])
+            loss = (raw - target)**2
+            loss[target==-1] = 0
+            loss = loss.mean()
+            loss.backward()
+            opt.step()
+            
+        netG.train()
+        raw = torch.argmax(raw[0], dim=0)
+        return raw[16:-16, 16:-16].detach().cpu()
