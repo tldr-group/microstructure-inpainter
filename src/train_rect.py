@@ -15,13 +15,13 @@ class RectWorker(QObject):
         self.c = c
         self.netG = netG
         self.netD = netD
-        self.training_imgs = training_imgs,
+        self.training_imgs = training_imgs
         self.nc = nc
         self.mask = mask
         self.unmasked = unmasked
         
     finished = pyqtSignal()
-    progress = pyqtSignal(int)
+    progress = pyqtSignal(int, int, float)
 
     def train(self):
         """[summary]
@@ -37,9 +37,11 @@ class RectWorker(QObject):
         """
 
         # Assign torch device
+        offline = True
+        overwrite = True
         c = self.c
-        netG = self.netG
-        netD = self.netD
+        Gen = self.netG
+        Disc = self.netD
         training_imgs = self.training_imgs 
         nc = self.nc
         mask = self.mask
@@ -60,6 +62,8 @@ class RectWorker(QObject):
         # unmasked = load_mask('data/unmasked.tif', device)
         mask = mask.to(device)
         unmasked = unmasked.to(device)
+        # init noise
+        noise = torch.randn((batch_size, nz, c.seed_x, c.seed_y))
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
@@ -73,9 +77,9 @@ class RectWorker(QObject):
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
 
-        wandb_init(tag, offline)
-        wandb.watch(netD, log='all', log_freq=100)
-        wandb.watch(netG, log='all', log_freq=100)
+        # wandb_init(tag, offline)
+        # wandb.watch(netD, log='all', log_freq=100)
+        # wandb.watch(netG, log='all', log_freq=100)
         for epoch in range(num_epochs):
             times = []
             for i in range(iters):
@@ -90,7 +94,7 @@ class RectWorker(QObject):
                 
                 netD.zero_grad()
 
-                noise = make_noise(batch_size, nz, c.seed_x, c.seed_y, device)
+                noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, device)
                 fake_data = netG(noise).detach()
                 fake_data = crop(fake_data,dl)
                 real_data = batch_real(training_imgs, dl, batch_size).to(device)
@@ -108,16 +112,16 @@ class RectWorker(QObject):
                 
 
                 # Log results
-                if not offline:
-                    wandb.log({'Gradient penalty': gradient_penalty.item()})
-                    wandb.log({'Wass': out_real.item() - out_fake.item()})
-                    wandb.log({'Discriminator real': out_real.item()})
-                    wandb.log({'Discriminator fake': out_fake.item()})
+                # if not offline:
+                #     wandb.log({'Gradient penalty': gradient_penalty.item()})
+                #     wandb.log({'Wass': out_real.item() - out_fake.item()})
+                #     wandb.log({'Discriminator real': out_real.item()})
+                #     wandb.log({'Discriminator fake': out_fake.item()})
 
                 # Generator training
                 if (i % int(critic_iters)) == 0:
                     netG.zero_grad()
-                    noise = make_noise(batch_size, nz, c.seed_x, c.seed_y, device)
+                    noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, device)
                     # Forward pass through G with noise vector
                     fake_data = netG(noise)
                     output = -netD(crop(fake_data, dl)).mean()
@@ -127,9 +131,9 @@ class RectWorker(QObject):
                     output.backward()
                     optG.step()
                 
-                if not offline:
-                    wandb.log({"Pixel loss": pw.item()})
-                    wandb.log({"Total G loss": output.item()})
+                # if not offline:
+                #     wandb.log({"Pixel loss": pw.item()})
+                #     wandb.log({"Total G loss": output.item()})
 
                 if ('cuda' in str(device)) and (ngpu > 1):
                     end_overall.record()
@@ -147,16 +151,18 @@ class RectWorker(QObject):
                         torch.save(netD.state_dict(), f'{path}/Disc.pt')
                         # wandb_save_models(f'{path}/Disc.pt')
                         # wandb_save_models(f'{path}/Gen.pt')
-                        noise = make_noise(batch_size, nz, c.seed_x, c.seed_y, device)
-                        img = netG(noise).detach()
-                        mse = pixel_wise_loss(img, mask, coeff=1, device=device)
-                        plot_img(img, i, epoch, path, offline)
-                        plot_examples(img, mask.clone(), unmasked.clone(), mse, offline)
-                        progress(i, iters, epoch, num_epochs,
-                                    timed=np.mean(times))
-                            
+                        plot_noise = make_noise(noise.clone(), 1, nz, c.seed_x, c.seed_y, device)[0].unsqueeze(0)
+                        img = netG(plot_noise).detach()
+                        mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
+                        # plot_img(img, i, epoch, path, offline)
+                        # plot_examples(img, mask.clone(), unmasked.clone(), mse, offline)
+                        # progress(i, iters, epoch, num_epochs,
+                        #             timed=np.mean(times))
+                        update_pixmap_rect(training_imgs, img, c)
+                        
+                        self.progress.emit(i, epoch, mse)
                         times = []
 
-
+        self.finished.emit()
         print("TRAINING FINISHED")
 

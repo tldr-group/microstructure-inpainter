@@ -38,7 +38,16 @@ class PainterWidget(QWidget):
         self.old_polys = []
         self.begin = QPoint()
         self.end = QPoint()
-        self.step_label = QLabel('0')
+        self.step_label = QLabel('Iter: 0, Epoch: 0, MSE: 0')
+        self.training = False
+
+        self.stopTrain = QPushButton('Stop', self)
+        self.stopTrain.setText("Stop")
+        self.stopTrain.move(10,10)
+        self.stopTrain.hide()
+        self.stopTrain.clicked.connect(self.stop_train)
+        
+
         loadAct = QAction('Load', self)
         loadAct.setStatusTip('Load new image from file')
         loadAct.triggered.connect(self.onLoadClick)
@@ -56,6 +65,8 @@ class PainterWidget(QWidget):
         selector = parent.addToolBar("Selector")
         selector.addWidget(self.selectorBox)
         self.selectorBox.activated[str].connect(self.onShapeSelected)
+
+        parent.addToolBarBreak()
 
         label = parent.addToolBar('Step Label')
         label.addWidget(self.step_label)
@@ -130,6 +141,8 @@ class PainterWidget(QWidget):
                 self.poly[-1] = self.end
             except:
                 pass
+        if self.shape == 'rect':
+            self.end = ((self.end-self.begin)/16) *16+self.begin
         self.update()
 
     def onLoadClick(self, event):
@@ -145,7 +158,8 @@ class PainterWidget(QWidget):
         self.update()
 
     def onTrainClick(self, event):
-
+        self.training = True
+        self.stopTrain.show()
         if self.shape=='rect':
             x1, x2, y1, y2 = self.begin.x(), self.end.x(), self.begin.y(), self.end.y()
             # get relative coordinates
@@ -166,7 +180,7 @@ class PainterWidget(QWidget):
             overwrite = True
             util.initialise_folders(tag, overwrite)
             training_imgs, nc = util.preprocess(c.data_path)
-            mask, unmasked, dl, img_size, seed = util.make_mask(training_imgs, c)
+            mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
             c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
             c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
             # Use dl to update discrimantor network structure
@@ -227,9 +241,15 @@ class PainterWidget(QWidget):
         # Step 6: Start the thread
         self.thread.start()
 
-    def progress(self, l):
-        self.step_label.setText(f'{l}')
+    def progress(self, l, e, mse):
+        self.step_label.setText(f'Iter: {l}, Epoch: {e}, MSE: {mse:.2g}')
         self.image = QPixmap("data/temp.png")
+    
+    def stop_train(self):
+        print('Stopping training')
+        self.thread.quit()
+        self.worker.deleteLater()
+        self.thread.deleteLater()
 def main():
 
     app = QApplication(sys.argv)
