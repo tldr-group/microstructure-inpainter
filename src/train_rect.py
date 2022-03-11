@@ -63,7 +63,7 @@ class RectWorker(QObject):
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
-        noise = torch.randn((batch_size, nz, c.seed_x, c.seed_y))
+        noise = torch.randn((batch_size, nz, c.seed_x, c.seed_y)).to(device)
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
