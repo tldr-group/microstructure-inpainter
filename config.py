@@ -18,10 +18,10 @@ class Config():
         self.beta2 = 0.999
         self.num_epochs = 250
         self.iters = 1000
-        self.lrg = 0.001
+        self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10
-        self.critic_iters = 10
+        self.critic_iters = 5
         self.pw_coeff = 1e3
         self.lz = 7
         self.lf = 7
@@ -76,8 +76,8 @@ class ConfigPoly(Config):
         # kernel sizes
         self.dk, self.gk = [4]*self.laysd, [4]*self.lays
         self.ds, self.gs = [2]*self.laysd, [2]*self.lays
-        self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
-            self.nz, 512, 256, 128, 64, self.n_phases]
+        self.df, self.gf = [self.n_phases, 128, 256, 512, 1024, 1], [
+            self.nz, 1024, 512, 256, 128, self.n_phases]
         self.dp = [1, 1, 1, 1, 0]
         self.gp = [2, 2, 2, 2, 3]
     def get_train_params(self):

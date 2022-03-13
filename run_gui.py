@@ -7,7 +7,7 @@ from sympy import re
 from src.train_poly import PolyWorker
 from src.train_rect import RectWorker
 from config import Config, ConfigPoly
-from src.networks import make_nets_rect
+from src.networks import make_nets_rect, make_nets_poly
 import src.util as util
 from matplotlib.path import Path
 import numpy as np
@@ -30,13 +30,15 @@ class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/Example_ppp.png")
-        self.img_path = "data/Example_ppp.png"
+        self.image = QPixmap("data/ebsdcrp.png")
+        self.img_path = "data/ebsdcrp.png"
         self.resize(self.image.width(), self.image.height())
         self.shape = 'rect'
+        self.image_type = 'colour'
         self.poly = []
         self.old_polys = []
         self.border = True
+        self.frames = 100
         self.begin = QPoint()
         self.end = QPoint()
         self.step_label = QLabel('Iter: 0, Epoch: 0, MSE: 0')
@@ -67,6 +69,12 @@ class PainterWidget(QWidget):
         border = parent.addToolBar('&Border')
         border.addAction(borderAct)
 
+        self.ImageTypeBox = QComboBox()
+        self.ImageTypeBox.insertItems(1,['colour', 'n-phase', 'grayscale'])
+        selector = parent.addToolBar("Image Type")
+        selector.addWidget(self.ImageTypeBox)
+        self.ImageTypeBox.activated[str].connect(self.onImageTypeSelected)
+
         self.selectorBox = QComboBox()
         self.selectorBox.insertItems(1,['rectangle', 'poly'])
         selector = parent.addToolBar("Selector")
@@ -78,8 +86,8 @@ class PainterWidget(QWidget):
         label = parent.addToolBar('Step Label')
         label.addWidget(self.step_label)
 
-        timeLine = QTimeLine(3000, self)
-        timeLine.setFrameRange(0, 19)
+        timeLine = QTimeLine(self.frames * 100, self)
+        timeLine.setFrameRange(0, self.frames - 1)
         timeLine.frameChanged[int].connect(self.show_next_img)
         self.timeline = timeLine
 
@@ -90,6 +98,9 @@ class PainterWidget(QWidget):
     def show_next_img(self, i):
         self.setPixmap(f"data/temp{i}.png")
         
+    def onImageTypeSelected(self, event):
+        self.image_type = self.ImageTypeBox.currentText()
+
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
@@ -208,7 +219,7 @@ class PainterWidget(QWidget):
             c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
             # Use dl to update discrimantor network structure
             c = util.update_discriminator(c)
-            netD, netG = make_nets_rect(c, overwrite)
+            netD, netG = make_nets_poly(c, overwrite)
             self.worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
             
         elif self.shape=='poly':
@@ -241,9 +252,17 @@ class PainterWidget(QWidget):
             real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
             overwrite = True
             util.initialise_folders(tag, overwrite)
-            netD, netG = make_nets_rect(c, overwrite)
-            print('training')
-            self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, overwrite)
+            if self.image_type == 'n=phase':
+                c.n_phases = np.unique(plt.imread(c.data_path))
+                c.conv_resize=False
+            elif self.image_type == 'colour':
+                c.n_phases = 3
+                c.conv_resize = True
+            else:
+                c.n_phases = 1
+            c.image_type = self.image_type
+            netD, netG = make_nets_poly(c, overwrite)
+            self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, self.frames, overwrite)
 
             # plt.imsave('mask.png', mask)
             # plt.imsave('real_data_seeds.png', rect_mask)

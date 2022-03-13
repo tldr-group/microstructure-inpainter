@@ -7,10 +7,10 @@ import torch.nn as nn
 import tifffile
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
-
+from copy import deepcopy
 
 class PolyWorker(QObject):
-    def __init__(self, c, netG, netD, real_seeds, mask, poly_rects, overwrite):
+    def __init__(self, c, netG, netD, real_seeds, mask, poly_rects, frames, overwrite):
         super().__init__()
         self.c = c
         self.netG = netG
@@ -19,6 +19,7 @@ class PolyWorker(QObject):
         self.poly_rects = poly_rects
         self.mask = mask
         self.overwrite = overwrite
+        self.frames = frames
     finished = pyqtSignal()
     progress = pyqtSignal(int, int, float)
 
@@ -42,6 +43,8 @@ class PolyWorker(QObject):
         real_seeds = self.real_seeds
         poly_rects = self.poly_rects 
         mask = self.mask
+        self.opt_iters = 1000
+        self.save_inpaint = self.opt_iters//self.frames
         overwrite = self.overwrite 
         offline=True
         ngpu = c.ngpu 
@@ -57,7 +60,7 @@ class PolyWorker(QObject):
         l, batch_size, beta1, beta2, num_epochs, iters, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
 
         # Read in data
-        training_imgs, nc = preprocess(c.data_path)
+        training_imgs, nc = preprocess(c.data_path, c.image_type)
 
         # Define Generator network
         netG = netG().to(device)
@@ -91,7 +94,6 @@ class PolyWorker(QObject):
 
                 noise = torch.randn(batch_size, nz, lz, lz, device=device)
                 fake_data = netG(noise).detach()
-
                 real_data = batch_real_poly(training_imgs, l, batch_size, real_seeds).to(device)
 
                 # Train on real
@@ -135,7 +137,7 @@ class PolyWorker(QObject):
 
 
                 # Every 50 iters log images and useful metrics
-                if i % 100 == 0:
+                if i == 0:
                     
                     torch.save(netG.state_dict(), f'{path}/Gen.pt')
                     torch.save(netD.state_dict(), f'{path}/Disc.pt')
@@ -148,11 +150,13 @@ class PolyWorker(QObject):
         self.finish.emit()
 
     def inpaint(self, netG):
-        img = preprocess(self.c.data_path)[0]
-        final_img = torch.argmax(img, dim=0)
-        final_imgs = [torch.argmax(img, dim=0) for i in range(20)]
-        final_img_fresh = torch.argmax(img, dim=0)
-        print(f'inpainting {len(self.poly_rects)} patches')
+        img = preprocess(self.c.data_path, self.c.image_type)[0]
+        if self.c.image_type =='n_phase':
+            final_imgs = [torch.argmax(img, dim=0) for i in range(self.frames)]
+            final_img_fresh = torch.argmax(img, dim=0)
+        else:
+            final_img_fresh = img.permute(1, 2, 0)
+            final_imgs = [deepcopy(img.permute(1, 2, 0)) for i in range(self.frames)]
         for rect in self.poly_rects:
             x0, y0, x1, y1 = (int(i) for i in rect)
             w, h = x1-x0, y1-y0
@@ -162,36 +166,47 @@ class PolyWorker(QObject):
             im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
             mask_crop = self.mask[x0-16:x1+16, y0-16:y1+16]
             c, w, h = im_crop.shape
-            lx, ly = int(w/32) + 2, int(h/32) + 2
+            if self.c.conv_resize:
+                lx, ly = int(w/16), int(h/16)
+            else:
+                lx, ly = int(w/32) + 2, int(h/32) + 2
             inpaints, mse = self.optimise_noise(lx, ly, im_crop, mask_crop, netG)
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
         for i, final_img in enumerate(final_imgs):
-            final_img[self.mask==0] = final_img_fresh[self.mask==0]
-            final_img = (final_img.numpy()/final_img.max())
-            plt.imsave(f'data/temp{i}.png', np.stack([final_img for i in range(3)], -1))
+            if self.c.image_type=='n=phase':
+                final_img[self.mask==0] = final_img_fresh[self.mask==0]
+                final_img = (final_img.numpy()/final_img.max())
+                plt.imsave(f'data/temp{i}.png', np.stack([final_img for i in range(3)], -1))
+            else:
+                for ch in range(self.c.n_phases): 
+                    final_img[:,:,ch][self.mask==0] = final_img_fresh[:,:,ch][self.mask==0]
+                plt.imsave(f'data/temp{i}.png', final_img.numpy())
         return mse
+
     def optimise_noise(self, lx, ly, img, mask, netG):
-        netG.eval()
         target = img.cuda()
         device = torch.device("cuda:0" if(
             torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
         target[:, mask] = -1
         target = target.unsqueeze(0)
         noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
-        opt = torch.optim.SGD(params=noise, lr=1)
-        iters=500
-        save = iters//20
+        opt = torch.optim.Adam(params=noise, lr=0.005)
         inpaints = []
-        for i in range(iters):
+        for i in range(self.opt_iters):
             raw = netG(noise[0])
             loss = (raw - target)**2
             loss[target==-1] = 0
             loss = loss.mean()
             loss.backward()
             opt.step()
-            if i%save==0:
-                raw = torch.argmax(raw[0], dim=0)[16:-16, 16:-16].detach().cpu()
+            with torch.no_grad():
+                noise[0] -= torch.tile(torch.mean(noise[0], dim=[1]), (1, self.c.nz,1,1))
+                noise[0] /= torch.tile(torch.std(noise[0], dim=[1]), (1, self.c.nz,1,1))
+            if i%self.save_inpaint==0:
+                if self.c.image_type == 'n-phase':
+                    raw = torch.argmax(raw[0], dim=0)[16:-16, 16:-16].detach().cpu()
+                else:
+                    raw = raw[0].permute(1,2,0)[16:-16, 16:-16].detach().cpu()
                 inpaints.append(raw)
-        netG.train()
         return inpaints, loss.item()

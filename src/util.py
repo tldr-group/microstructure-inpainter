@@ -112,7 +112,7 @@ def wandb_save_models(fn):
     wandb.save(fn)
 
 # training util
-def preprocess(data_path, load=True):
+def preprocess(data_path, imtype, load=True):
     """[summary]
 
     :param imgs: [description]
@@ -121,20 +121,25 @@ def preprocess(data_path, load=True):
     :rtype: [type]
     """
     # img = tifffile.imread(data_path)
-    if load:
+    if imtype == 'n-phase':
         img = plt.imread(data_path)[...,0]
+        phases = np.unique(img)
+        if len(phases) > 10:
+            raise AssertionError('Image not one hot encoded.')
+        # x, y, z = img.shape
+        x, y = img.shape
+        # img_oh = torch.zeros(len(phases), x, y, z)
+        img_oh = torch.zeros(len(phases), x, y)
+        for i, ph in enumerate(phases):
+            img_oh[i][img == ph] = 1
+        return img_oh, len(phases)
     else:
-        img = data_path[...,0]
-    phases = np.unique(img)
-    if len(phases) > 10:
-        raise AssertionError('Image not one hot encoded.')
-    # x, y, z = img.shape
-    x, y = img.shape
-    # img_oh = torch.zeros(len(phases), x, y, z)
-    img_oh = torch.zeros(len(phases), x, y)
-    for i, ph in enumerate(phases):
-        img_oh[i][img == ph] = 1
-    return img_oh, len(phases)
+        img = plt.imread(data_path)[:,:,:3]
+        
+        # x, y, z = img.shape
+        img = torch.tensor(img)
+        return img.permute(2,0,1), 3 if imtype=='colour' else 1
+
 
 def calculate_size_from_seed(seed, c):
     imsize = seed
