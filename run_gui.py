@@ -211,13 +211,24 @@ class PainterWidget(QWidget):
             # overwrite = util.check_existence(tag)
             overwrite = True
             util.initialise_folders(tag, overwrite)
-            training_imgs, nc = util.preprocess(c.data_path)
+            training_imgs, nc = util.preprocess(c.data_path, self.image_type)
             mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
             c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
             c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
             # Use dl to update discrimantor network structure
+            c.image_type = self.image_type
+            if self.image_type == 'n-phase':
+                c.n_phases = np.unique(plt.imread(c.data_path))
+                c.conv_resize=False
+            elif self.image_type == 'colour':
+                c.n_phases = 3
+                c.conv_resize = False
+            else:
+                c.n_phases = 1
             c = util.update_discriminator(c)
-            netD, netG = make_nets_poly(c, overwrite)
+            c.update_channels()
+            c.save()
+            netD, netG = make_nets_rect(c, overwrite)
             self.worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
             
         elif self.shape=='poly':
