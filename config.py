@@ -31,6 +31,7 @@ class Config():
             self.device_name = "cuda:0"
         else:
             self.device_name = 'cpu'
+        self.conv_resize = True
         self.nz = 100
         # Architecture
         self.lays = 4
@@ -78,6 +79,8 @@ class ConfigPoly(Config):
         self.ds, self.gs = [2]*self.laysd, [2]*self.lays
         self.df, self.gf = [self.n_phases, 128, 256, 512, 1024, 1], [
             self.nz, 1024, 512, 256, 128, self.n_phases]
+        self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
+            self.nz, 512, 256, 128, 64, self.n_phases]
         self.dp = [1, 1, 1, 1, 0]
         self.gp = [2, 2, 2, 2, 3]
     def get_train_params(self):

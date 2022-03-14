@@ -121,24 +121,30 @@ def preprocess(data_path, imtype, load=True):
     :rtype: [type]
     """
     # img = tifffile.imread(data_path)
-    if imtype == 'n-phase':
-        img = plt.imread(data_path)[...,0]
-        phases = np.unique(img)
-        if len(phases) > 10:
-            raise AssertionError('Image not one hot encoded.')
-        # x, y, z = img.shape
-        x, y = img.shape
-        # img_oh = torch.zeros(len(phases), x, y, z)
-        img_oh = torch.zeros(len(phases), x, y)
-        for i, ph in enumerate(phases):
-            img_oh[i][img == ph] = 1
-        return img_oh, len(phases)
+    img = plt.imread(data_path)
+    if imtype == 'colour':
+            img = img[:,:,:3]
+            img = torch.tensor(img)
+            return img.permute(2,0,1), 3
     else:
-        img = plt.imread(data_path)[:,:,:3]
-        
+        if len(img.shape) > 2:
+            img = img[...,0]
+        if imtype == 'n-phase':
+            phases = np.unique(img)
+            if len(phases) > 10:
+                raise AssertionError('Image not one hot encoded.')
+            # x, y, z = img.shape
+            x, y = img.shape
+            # img_oh = torch.zeros(len(phases), x, y, z)
+            img_oh = torch.zeros(len(phases), x, y)
+            for i, ph in enumerate(phases):
+                img_oh[i][img == ph] = 1
+            return img_oh, len(phases)
+        elif imtype == 'grayscale':
+            img = np.expand_dims(img, 0)
+            img = torch.tensor(img)
+            return img, 1
         # x, y, z = img.shape
-        img = torch.tensor(img)
-        return img.permute(2,0,1), 3 if imtype=='colour' else 1
 
 
 def calculate_size_from_seed(seed, c):

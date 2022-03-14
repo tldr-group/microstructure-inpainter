@@ -23,16 +23,16 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Microstructure Inpainter')
         self.painter_widget = PainterWidget(self) 
         self.setCentralWidget(self.painter_widget)
-        self.setGeometry(30,30,self.painter_widget.image.width(),self.painter_widget.image.height())
+        self.setGeometry(30, 30, self.painter_widget.image.width(), self.painter_widget.image.height())
         self.show()
 
 class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/ebsdcrp.png")
-        self.img_path = "data/ebsdcrp.png"
-        self.resize(self.image.width(), self.image.height())
+        self.image = QPixmap("data/cementcrp.png")
+        self.img_path = "data/cementcrp.png"
+        self.parent.resize(self.image.width(), self.image.height())
         self.shape = 'rect'
         self.image_type = 'colour'
         self.poly = []
@@ -96,18 +96,16 @@ class PainterWidget(QWidget):
 
 
     def show_next_img(self, i):
-        self.setPixmap(f"data/temp{i}.png")
+        self.setPixmap(f"data/temp/temp{i}.png")
         
     def onImageTypeSelected(self, event):
         self.image_type = self.ImageTypeBox.currentText()
-
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
         # self.setGeometry(30,30,600,400)
         self.resize(self.image.width(), self.image.height())
         self.update()
-        self.show()
 
 
     def openFileNamesDialog(self):
@@ -252,9 +250,10 @@ class PainterWidget(QWidget):
             real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
             overwrite = True
             util.initialise_folders(tag, overwrite)
-            if self.image_type == 'n=phase':
-                c.n_phases = np.unique(plt.imread(c.data_path))
-                c.conv_resize=False
+            if self.image_type == 'n-phase':
+                c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
+                c.conv_resize=True
+                
             elif self.image_type == 'colour':
                 c.n_phases = 3
                 c.conv_resize = True
@@ -262,6 +261,8 @@ class PainterWidget(QWidget):
                 c.n_phases = 1
             c.image_type = self.image_type
             netD, netG = make_nets_poly(c, overwrite)
+            
+            print(f'training with {c.n_phases} channels using image type {self.image_type} and net type conv resize')
             self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, self.frames, overwrite)
 
             # plt.imsave('mask.png', mask)
@@ -287,9 +288,8 @@ class PainterWidget(QWidget):
         self.step_label.setText(f'Iter: {l}, Epoch: {e}, MSE: {mse:.2g}')
         if self.shape=='poly':
             self.timeline.start()
-            self.setPixmap('data/temp9.png')
         else:
-            self.image = QPixmap("data/temp.png")
+            self.image = QPixmap("data/temp/temp.png")
     
     def stop_train(self):
         print('Stopping training')

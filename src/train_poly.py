@@ -151,7 +151,8 @@ class PolyWorker(QObject):
 
     def inpaint(self, netG):
         img = preprocess(self.c.data_path, self.c.image_type)[0]
-        if self.c.image_type =='n_phase':
+        
+        if self.c.image_type =='n-phase':
             final_imgs = [torch.argmax(img, dim=0) for i in range(self.frames)]
             final_img_fresh = torch.argmax(img, dim=0)
         else:
@@ -174,21 +175,29 @@ class PolyWorker(QObject):
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
         for i, final_img in enumerate(final_imgs):
-            if self.c.image_type=='n=phase':
+            if self.c.image_type=='n-phase':
                 final_img[self.mask==0] = final_img_fresh[self.mask==0]
                 final_img = (final_img.numpy()/final_img.max())
-                plt.imsave(f'data/temp{i}.png', np.stack([final_img for i in range(3)], -1))
+                plt.imsave(f'data/temp/temp{i}.png', np.stack([final_img for i in range(3)], -1))
             else:
                 for ch in range(self.c.n_phases): 
                     final_img[:,:,ch][self.mask==0] = final_img_fresh[:,:,ch][self.mask==0]
-                plt.imsave(f'data/temp{i}.png', final_img.numpy())
+                if self.c.image_type=='colour':
+                    plt.imsave(f'data/temp/temp{i}.png', final_img.numpy())
+                elif self.c.image_type=='grayscale':
+                    plt.imsave(f'data/temp/temp{i}.png', np.concatenate([final_img for i in range(3)], -1))
+
         return mse
 
     def optimise_noise(self, lx, ly, img, mask, netG):
         target = img.cuda()
         device = torch.device("cuda:0" if(
-            torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
-        target[:, mask] = -1
+            torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")        
+        for ch in range(self.c.n_phases):
+            target[ch][mask==1] = -1
+        # plt.imsave('test2.png', torch.cat([target.permute(1,2,0) for i in range(3)], -1).cpu().numpy())
+        # plt.imsave('test.png', np.stack([mask for i in range(3)], -1))
+
         target = target.unsqueeze(0)
         noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
         opt = torch.optim.Adam(params=noise, lr=0.005)
