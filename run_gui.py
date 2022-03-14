@@ -217,7 +217,7 @@ class PainterWidget(QWidget):
             # Use dl to update discrimantor network structure
             c.image_type = self.image_type
             if self.image_type == 'n-phase':
-                c.n_phases = np.unique(plt.imread(c.data_path))
+                c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
             elif self.image_type == 'colour':
                 c.n_phases = 3
             else:
