@@ -103,7 +103,7 @@ class PainterWidget(QWidget):
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
-        self.resize(self.image.width(), self.image.height())
+        self.parent.setGeometry(30, 30, self.image.width(), self.image.height()+40)
         self.update()
 
 
