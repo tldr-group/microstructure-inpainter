@@ -1,4 +1,5 @@
 from time import sleep
+from tkinter import image_types
 import numpy as np
 import torch
 from torch import autograd
@@ -185,8 +186,8 @@ def make_mask(training_imgs, c):
     plt.savefig('data/mask_plot.png')
     plt.close()
 
-    plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
-    plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
+    # plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
+    # plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
     return mask, unmasked, D_size_dim, img_size, img_seed, c
 
 def update_discriminator(c):
@@ -224,7 +225,7 @@ def update_pixmap_rect(raw, img, c):
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     # updated_pixmap = torch.cat((updated_pixmap, torch.zeros((updated_pixmap.shape[1], updated_pixmap.shape[2])).unsqueeze(0))).permute(1,2,0).numpy()
     # TODO add postprocess function
-    updated_pixmap = post_process(updated_pixmap)
+    updated_pixmap = post_process(updated_pixmap, c.image_type)
     plt.imsave('data/temp.png', updated_pixmap[0,1])
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
@@ -296,12 +297,12 @@ def pixel_wise_loss(fake_img, real_img, coeff=1, device=None):
     mask = (mask[...,-1]==0).unsqueeze(0)
     mask = mask.repeat(fake_img.shape[0], fake_img.shape[1],1,1)
     fake_img = torch.where(mask==True, fake_img, torch.tensor(0).float().to(device))
-    real_img = real_img.unsqueeze(0).repeat(fake_img.shape[0], 1 ,1, 1)[:,0:2]
+    real_img = real_img.unsqueeze(0).repeat(fake_img.shape[0], 1 ,1, 1)[:,0:-1]
     real_img = torch.where(mask==True, real_img, torch.tensor(0).float().to(device))
     return torch.nn.MSELoss(reduction='none')(fake_img, real_img)*coeff
 
 # Evaluation util
-def post_process(img, phases=[0,1]):
+def post_process(img, image_type='n-phase'):
     """Turns a n phase image (bs, n, imsize, imsize) into a plottable euler image (bs, 3, imsize, imsize, imsize)
 
     :param img: a tensor of the n phase img
@@ -310,16 +311,19 @@ def post_process(img, phases=[0,1]):
     :rtype:
     """
     img = img.detach().cpu()
-    img = torch.argmax(img, dim=1).numpy()
-    # phases = np.unique(img)
-    if len(phases) > 10:
-        raise AssertionError('Image not one hot encoded.')
-    bs, x, y = img.shape
-    img_oh = torch.zeros(bs, len(phases), x, y)
-    for b in range(bs):
-        for i, ph in enumerate(phases):
-            img_oh[b,i][img[b] == ph] = 1
-    return img_oh
+    if image_type=='n-phase':
+        phases = np.unique(img)
+        img = torch.argmax(img, dim=1).numpy()
+        if len(phases) > 10:
+            raise AssertionError('Image not one hot encoded.')
+        bs, x, y = img.shape
+        out = torch.zeros(bs, len(phases), x, y)
+        for b in range(bs):
+            for i, ph in enumerate(phases):
+                out[b,i][img[b] == ph] = 1
+    elif image_type=='colour':
+        out = img
+    return out
     
 def generate(c, netG, skeleton):
     """Generate an instance from generator, save to .tif

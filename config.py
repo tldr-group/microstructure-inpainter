@@ -44,6 +44,10 @@ class Config():
         self.gp = [1, 1, 1, 1]
 
         # self.gs[0] = 1
+    
+    def update_channels(self):
+        self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
+            self.nz, 512, 256, 128, self.n_phases]
 
     def save(self):
         j = {}
