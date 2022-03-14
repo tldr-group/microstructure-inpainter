@@ -185,12 +185,12 @@ def make_mask(training_imgs, c):
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
     
     # plot regions where discriminated
-    plt.figure()
-    plotter = mask.permute(1,2,0).numpy().copy()
-    plotter[(img_size[0].item()-D_size_dim)//2:(img_size[0].item()+D_size_dim)//2,(img_size[1].item()-D_size_dim)//2:(img_size[1].item()+D_size_dim)//2,:] = 0
-    plt.imshow(plotter)
-    plt.savefig('data/mask_plot.png')
-    plt.close()
+    # plt.figure()
+    # plotter = mask.permute(1,2,0).numpy().copy()
+    # plotter[(img_size[0].item()-D_size_dim)//2:(img_size[0].item()+D_size_dim)//2,(img_size[1].item()-D_size_dim)//2:(img_size[1].item()+D_size_dim)//2,:] = 0
+    # plt.imshow(plotter)
+    # plt.savefig('data/mask_plot.png')
+    # plt.close()
 
     # plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
     # plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
@@ -230,9 +230,11 @@ def update_pixmap_rect(raw, img, c):
     x_1, x_2, y_1, y_2 = (img.shape[2]-lx)//2,(img.shape[2]+lx)//2, (img.shape[3]-ly)//2, (img.shape[3]+ly)//2
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     # updated_pixmap = torch.cat((updated_pixmap, torch.zeros((updated_pixmap.shape[1], updated_pixmap.shape[2])).unsqueeze(0))).permute(1,2,0).numpy()
-    # TODO add postprocess function
     updated_pixmap = post_process(updated_pixmap, c.image_type).permute(0,2,3,1)
-    plt.imsave('data/temp/temp.png', updated_pixmap[0].numpy())
+    if c.image_type=='grayscale':
+        plt.imsave('data/temp/temp.png', updated_pixmap[0,...,0], cmap='gray')
+    else:
+        plt.imsave('data/temp/temp.png', updated_pixmap[0].numpy())
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
@@ -274,6 +276,7 @@ def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_
     gradients = gradients.view(gradients.size(0), -1)
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * gp_lambda
     return gradient_penalty
+
 def batch_real_poly(img, l, bs, real_seeds):
     n_ph, _, _ = img.shape
     max_idx = len(real_seeds[0])
@@ -327,7 +330,7 @@ def post_process(img, image_type='n-phase'):
         for b in range(bs):
             for i, ph in enumerate(phases):
                 out[b,i][img[b] == ph] = 1
-    elif image_type=='colour':
+    else:
         out = img
     return out
     

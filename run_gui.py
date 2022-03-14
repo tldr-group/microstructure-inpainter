@@ -30,8 +30,8 @@ class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/ebsdcrp.png")
-        self.img_path = "data/ebsdcrp.png"
+        self.image = QPixmap("data/cement.png")
+        self.img_path = "data/cement.png"
         self.parent.resize(self.image.width(), self.image.height())
         self.shape = 'rect'
         self.image_type = 'colour'

@@ -38,7 +38,10 @@ def make_nets_rect(config, training=True):
                 # x = torch.cat((x, mask[:,-1].reshape(x.shape)), dim=1)
                 for conv, bn in zip(self.convs[:-1], self.bns[:-1]):
                     x = F.relu_(bn(conv(x)))
-                out = torch.softmax(self.convs[-1](x), dim=1)
+                if config.image_type == 'n-phase':
+                    out = torch.softmax(self.convs[-1](x), dim=1)
+                else:
+                    out = torch.sigmoid(self.convs[-1](x))  # bs x 1 x 1
                 # out = torch.where((mask[:,-1]==0).unsqueeze(1).repeat(1,3,1,1,1), mask[:,0:3], out)
                 return out  # bs x n x imsize x imsize x imsize
 
@@ -53,11 +56,7 @@ def make_nets_rect(config, training=True):
             def forward(self, x):
                 for conv in self.convs[:-1]:
                     x = F.relu_(conv(x))
-                if config.image_type == 'n-phase':
-                    out = torch.softmax(self.convs[-1](x), dim=1)
-                else:
-                    out = torch.sigmoid(self.convs[-1](x))  # bs x 1 x 1
-                return out
+                return x
     else:
         class Generator(nn.Module):
             def __init__(self):
