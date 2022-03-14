@@ -155,7 +155,6 @@ def calculate_size_from_seed(seed, c):
     return imsize
 
 def calculate_seed_from_size(imsize, c):
-    print(imsize)
     for (k, s, p) in zip(c.gk, c.gs, c.gp):
         imsize = ((imsize-k+2*p)/s+1).to(int)
     return imsize
@@ -337,7 +336,11 @@ def crop(fake_data, l):
     w = fake_data.shape[2]
     return fake_data[:,:,w//2-l//2:w//2+l//2,w//2-l//2:w//2+l//2]
 
-def make_noise(noise, bs, nz, seed_x, seed_y, device):
+def make_noise(noise, bs, nz, seed_x, seed_y, dl, c, device):
     # noise = torch.ones(bs, nz, seed_x, seed_y, device=device)
-    noise[:,:,seed_x//2,seed_y//2,] = torch.randn(bs,nz)
+    mask = torch.zeros_like(noise).to(device)
+    d_x, d_y = calculate_seed_from_size(torch.Tensor([dl, dl]), c)
+    mask[:,:, (seed_x-d_x.item())//2:(seed_x+d_x.item())//2, (seed_y-d_y.item())//2:(seed_y+d_y.item())//2] = 1
+    rand = torch.randn_like(noise).to(device)*mask
+    noise = noise*(mask==0)+rand
     return noise

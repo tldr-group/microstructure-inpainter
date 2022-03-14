@@ -64,7 +64,7 @@ class RectWorker(QObject):
         unmasked = unmasked.to(device)
         # init noise
         noise = torch.randn(batch_size, nz, c.seed_x, c.seed_y, requires_grad=True, device=device)
-        optNoise = torch.optim.Adam(params=[torch.nn.Parameter(noise)], lr=0.005)
+        optNoise = torch.optim.Adam(params=[torch.nn.Parameter(noise)], lr=0.01)
         # noise = torch.randn((batch_size, nz, c.seed_x, c.seed_y)).to(device)
         # Define Generator network
         netG = Gen().to(device)
@@ -95,8 +95,9 @@ class RectWorker(QObject):
 
                 
                 netD.zero_grad()
+                optNoise.zero_grad()
 
-                noise = make_noise(noise.detach(), batch_size, nz, c.seed_x, c.seed_y, device)
+                noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, dl, c, device)
                 fake_data = netG(noise).detach()
                 fake_data = crop(fake_data,dl)
                 real_data = batch_real(training_imgs, dl, batch_size).to(device)
@@ -111,6 +112,11 @@ class RectWorker(QObject):
                 disc_cost.backward()
 
                 optD.step()
+
+                optNoise.step()
+                with torch.no_grad():
+                    noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
+                    noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
                 
 
                 # Log results
@@ -123,14 +129,15 @@ class RectWorker(QObject):
                 # Generator training
                 if (i % int(critic_iters)) == 0:
                     netG.zero_grad()
-                    noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, device)
+                    optNoise.zero_grad()
+                    noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, dl, c, device)
                     # Forward pass through G with noise vector
                     fake_data = netG(noise)
                     output = -netD(crop(fake_data, dl)).mean()
                     pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
                     output += pw
                     # Calculate loss for G and backprop
-                    output.backward()
+                    output.backward(retain_graph=True)
                     optG.step()
                     optNoise.step()
                     with torch.no_grad():
@@ -158,7 +165,7 @@ class RectWorker(QObject):
                         torch.save(netD.state_dict(), f'{path}/Disc.pt')
                         # wandb_save_models(f'{path}/Disc.pt')
                         # wandb_save_models(f'{path}/Gen.pt')
-                        plot_noise = make_noise(noise.detach().clone(), 1, nz, c.seed_x, c.seed_y, device)[0].unsqueeze(0)
+                        plot_noise = make_noise(noise.detach().clone(), 1, nz, c.seed_x, c.seed_y, dl, c, device)[0].unsqueeze(0)
                         img = netG(plot_noise).detach()
                         mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
                         # plot_img(img, i, epoch, path, offline)
