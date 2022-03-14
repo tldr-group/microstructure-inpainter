@@ -53,8 +53,11 @@ def make_nets_rect(config, training=True):
             def forward(self, x):
                 for conv in self.convs[:-1]:
                     x = F.relu_(conv(x))
-                x = self.convs[-1](x)  # bs x 1 x 1
-                return x
+                if config.image_type == 'n-phase':
+                    out = torch.softmax(self.convs[-1](x), dim=1)
+                else:
+                    out = torch.sigmoid(self.convs[-1](x))  # bs x 1 x 1
+                return out
     else:
         class Generator(nn.Module):
             def __init__(self):

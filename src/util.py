@@ -231,8 +231,8 @@ def update_pixmap_rect(raw, img, c):
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     # updated_pixmap = torch.cat((updated_pixmap, torch.zeros((updated_pixmap.shape[1], updated_pixmap.shape[2])).unsqueeze(0))).permute(1,2,0).numpy()
     # TODO add postprocess function
-    updated_pixmap = post_process(updated_pixmap, c.image_type)
-    plt.imsave('data/temp.png', updated_pixmap[0,1])
+    updated_pixmap = post_process(updated_pixmap, c.image_type).permute(0,2,3,1)
+    plt.imsave('data/temp/temp.png', updated_pixmap[0].numpy())
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
