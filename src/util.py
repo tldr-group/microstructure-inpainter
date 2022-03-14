@@ -167,6 +167,7 @@ def make_mask(training_imgs, c):
     img_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
     D_size_dim = int(torch.div(mask_size.min(),32, rounding_mode='floor'))*16
+    D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
 
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
@@ -182,6 +183,8 @@ def make_mask(training_imgs, c):
     # save coords to c
     c.mask_coords = (x1,x2,y1,y2)
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
+    c.D_seed_x = D_seed[0].item()
+    c.D_seed_y = D_seed[1].item()
     
     # plot regions where discriminated
     # plt.figure()
@@ -336,11 +339,10 @@ def crop(fake_data, l):
     w = fake_data.shape[2]
     return fake_data[:,:,w//2-l//2:w//2+l//2,w//2-l//2:w//2+l//2]
 
-def make_noise(noise, bs, nz, seed_x, seed_y, dl, c, device):
+def make_noise(noise, seed_x, seed_y, c, device):
     # noise = torch.ones(bs, nz, seed_x, seed_y, device=device)
     mask = torch.zeros_like(noise).to(device)
-    d_x, d_y = calculate_seed_from_size(torch.Tensor([dl, dl]), c)
-    mask[:,:, (seed_x-d_x.item())//2:(seed_x+d_x.item())//2, (seed_y-d_y.item())//2:(seed_y+d_y.item())//2] = 1
+    mask[:,:, (seed_x-c.D_seed_x)//2:(seed_x+c.D_seed_x)//2, (seed_y-c.D_seed_y)//2:(seed_y+c.D_seed_y)//2] = 1
     rand = torch.randn_like(noise).to(device)*mask
     noise = noise*(mask==0)+rand
     return noise

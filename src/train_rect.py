@@ -95,10 +95,9 @@ class RectWorker(QObject):
 
                 
                 netD.zero_grad()
-                optNoise.zero_grad()
 
-                noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, dl, c, device)
-                fake_data = netG(noise).detach()
+                d_noise = make_noise(noise.detach(), c.seed_x, c.seed_y, c, device)
+                fake_data = netG(d_noise).detach()
                 fake_data = crop(fake_data,dl)
                 real_data = batch_real(training_imgs, dl, batch_size).to(device)
                 # Train on real
@@ -112,11 +111,6 @@ class RectWorker(QObject):
                 disc_cost.backward()
 
                 optD.step()
-
-                optNoise.step()
-                with torch.no_grad():
-                    noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                    noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
                 
 
                 # Log results
@@ -129,8 +123,8 @@ class RectWorker(QObject):
                 # Generator training
                 if (i % int(critic_iters)) == 0:
                     netG.zero_grad()
-                    optNoise.zero_grad()
-                    noise = make_noise(noise, batch_size, nz, c.seed_x, c.seed_y, dl, c, device)
+                    # optNoise.zero_grad()
+                    noise = make_noise(noise, c.seed_x, c.seed_y, c, device)
                     # Forward pass through G with noise vector
                     fake_data = netG(noise)
                     output = -netD(crop(fake_data, dl)).mean()
@@ -140,10 +134,10 @@ class RectWorker(QObject):
                     output.backward(retain_graph=True)
                     optG.step()
                     optNoise.step()
-                    with torch.no_grad():
-                        noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                        noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                    
+                    print(noise[0,0])
+                    # with torch.no_grad():
+                    #     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
+                    #     noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
                 
                 # if not offline:
                 #     wandb.log({"Pixel loss": pw.item()})
@@ -165,7 +159,7 @@ class RectWorker(QObject):
                         torch.save(netD.state_dict(), f'{path}/Disc.pt')
                         # wandb_save_models(f'{path}/Disc.pt')
                         # wandb_save_models(f'{path}/Gen.pt')
-                        plot_noise = make_noise(noise.detach().clone(), 1, nz, c.seed_x, c.seed_y, dl, c, device)[0].unsqueeze(0)
+                        plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device)[0].unsqueeze(0)
                         img = netG(plot_noise).detach()
                         mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
                         # plot_img(img, i, epoch, path, offline)
