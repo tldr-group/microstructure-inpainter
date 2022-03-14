@@ -218,14 +218,12 @@ class PainterWidget(QWidget):
             c.image_type = self.image_type
             if self.image_type == 'n-phase':
                 c.n_phases = np.unique(plt.imread(c.data_path))
-                c.conv_resize=False
             elif self.image_type == 'colour':
                 c.n_phases = 3
-                c.conv_resize = False
             else:
                 c.n_phases = 1
             c = util.update_discriminator(c)
-            c.update_channels()
+            c.update_params()
             c.save()
             netD, netG = make_nets_rect(c, overwrite)
             self.worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
