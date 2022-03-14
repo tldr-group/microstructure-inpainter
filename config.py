@@ -9,7 +9,7 @@ class Config():
         self.path = f'runs/{self.tag}'
         self.data_path = ''
         self.mask_coords = []
-        self.net_type = 'gan'
+        self.net_type = 'conv-resize'
         self.image_type = 'n-phase'
         self.l = 128
         self.n_phases = 2
@@ -50,8 +50,7 @@ class Config():
     def update_params(self):
         self.df[0] = self.n_phases
         self.gf[-1] =  self.n_phases
-        if self.image_type=='colour':
-            self.net_type = 'conv_resize'
+        if self.net_type=='conv-resize':
             self.lays = 5
             self.gk = [3]*self.lays
             self.gs = [1]*self.lays
