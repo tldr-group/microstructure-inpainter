@@ -229,8 +229,7 @@ def update_pixmap_rect(raw, img, c):
     lx, ly = c.mask_size
     x_1, x_2, y_1, y_2 = (img.shape[2]-lx)//2,(img.shape[2]+lx)//2, (img.shape[3]-ly)//2, (img.shape[3]+ly)//2
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
-    # updated_pixmap = torch.cat((updated_pixmap, torch.zeros((updated_pixmap.shape[1], updated_pixmap.shape[2])).unsqueeze(0))).permute(1,2,0).numpy()
-    updated_pixmap = post_process(updated_pixmap, c.image_type).permute(0,2,3,1)
+    updated_pixmap = post_process(updated_pixmap, c).permute(0,2,3,1)
     if c.image_type=='grayscale':
         plt.imsave('data/temp/temp.png', updated_pixmap[0,...,0], cmap='gray')
     else:
@@ -311,7 +310,7 @@ def pixel_wise_loss(fake_img, real_img, coeff=1, device=None):
     return torch.nn.MSELoss(reduction='none')(fake_img, real_img)*coeff
 
 # Evaluation util
-def post_process(img, image_type='n-phase'):
+def post_process(img, c):
     """Turns a n phase image (bs, n, imsize, imsize) into a plottable euler image (bs, 3, imsize, imsize, imsize)
 
     :param img: a tensor of the n phase img
@@ -320,8 +319,8 @@ def post_process(img, image_type='n-phase'):
     :rtype:
     """
     img = img.detach().cpu()
-    if image_type=='n-phase':
-        phases = np.unique(img)
+    if c.image_type=='n-phase':
+        phases = np.arange(c.n_phases+1)
         img = torch.argmax(img, dim=1).numpy()
         if len(phases) > 10:
             raise AssertionError('Image not one hot encoded.')
@@ -332,109 +331,6 @@ def post_process(img, image_type='n-phase'):
                 out[b,i][img[b] == ph] = 1
     else:
         out = img
-    return out
-    
-def generate(c, netG, skeleton):
-    """Generate an instance from generator, save to .tif
-
-    :param c: Config object class
-    :type c: Config
-    :param netG: Generator instance
-    :type netG: Generator
-    :return: Post-processed generated instance
-    :rtype: torch.Tensor
-    """
-    tag, ngpu, nz, lf, pth = c.tag, c.ngpu, c.nz, c.lf, c.path
-
-
-    out_pth = f"runs/{tag}/out.tif"
-    if torch.cuda.device_count() > 1 and c.ngpu > 1:
-        print("Using", torch.cuda.device_count(), "GPUs!")
-    device = torch.device("cuda:0" if(
-            torch.cuda.is_available() and ngpu > 0) else "cpu")
-    if (ngpu > 1):
-        netG = nn.DataParallel(netG, list(range(ngpu))).to(device)
-    netG.load_state_dict(torch.load(f"{pth}/Gen.pt"))
-    netG.eval()
-    noise = torch.randn(1, nz, lf, lf)
-    raw = netG(noise, skeleton)
-    gb = post_process(raw)
-    tif = np.array(gb[0].permute(1,2,0), dtype=np.uint8)
-    tifffile.imwrite(out_pth, tif, imagej=True)
-    return tif
-
-def progress(i, iters, n, num_epochs, timed):
-    """[summary]
-
-    :param i: [description]
-    :type i: [type]
-    :param iters: [description]
-    :type iters: [type]
-    :param n: [description]
-    :type n: [type]
-    :param num_epochs: [description]
-    :type num_epochs: [type]
-    :param timed: [description]
-    :type timed: [type]
-    """
-    progress = 'iteration {} of {}, epoch {} of {}'.format(
-        i, iters, n, num_epochs)
-    print(f"Progress: {progress}, Time per iter: {timed}")
-
-def plot_img(img, iter, epoch, path, offline=True):
-    """[summary]
-
-    :param img: [description]
-    :type img: [type]
-    :param slcs: [description], defaults to 4
-    :type slcs: int, optional
-    """
-    img = post_process(img)
-    if not offline:
-        wandb.log({"slices": [wandb.Image(i) for i in img]})
-    else:
-        plt.imsave(f'{path}/test.png', img[0][:, 31])
-
-
-def plot_examples(img, mask, unmasked, mse, offline=True):
-    """[summary]
-
-    :param img: [description]
-    :type img: [type]
-    :param slcs: [description], defaults to 4
-    :type slcs: int, optional
-    """
-    fig, ax = plt.subplots(2,3)
-    fig.suptitle('inpainting')
-    ax[0,0].set_title('Original')
-    ax[0,1].set_title('Mask')
-    ax[0,2].set_title('Original-masked')
-    ax[1,0].set_title('G output')
-    ax[1,1].set_title('Inpainted')
-    ax[1,2].set_title('MSE loss')
-
-    # ax[0,0].imshow(post_process(unmasked.unsqueeze(0))[0].permute(1,2,3,0).cpu()[32])
-    # ax[0,1].imshow(mask[-1, 32].cpu())
-    # ax[0,2].imshow(post_process(mask.unsqueeze(0))[0,0:3].permute(1,2,3,0).cpu()[32])
-    # ax[1,0].imshow(post_process(img)[0].permute(1,2,3,0).cpu()[32])
-    # ax[1,1].imshow(post_process(inpaint(img, unmasked))[0].permute(1,2,3,0).cpu()[32])
-    # ax[1,2].imshow(mse[0].permute(1,2,3,0).cpu()[32])
-    ax[0,0].imshow(post_process(unmasked.unsqueeze(0))[0].permute(1,2,0).cpu())
-    ax[0,1].imshow(mask[-1].cpu())
-    ax[0,2].imshow(post_process(mask.unsqueeze(0))[0,0:3].permute(1,2,0).cpu())
-    ax[1,0].imshow(post_process(img)[0].permute(1,2,0).cpu())
-    ax[1,1].imshow(post_process(inpaint(img, mask))[0].permute(1,2,0).cpu())
-    # ax[1,2].imshow(mse[0].permute(1,2,0).cpu())
-    fig.tight_layout()
-    wandb.log({"examples": wandb.Image(fig)})
-    plt.close()
-    
-def inpaint(fake_data, mask):
-    l = fake_data.shape[2]
-    out = mask.clone().unsqueeze(0).repeat(fake_data.shape[0],1,1,1)
-    out = out[:,0:2]+fake_data*(out[:, -1].unsqueeze(1)!=0)
-    # out = unmasked[:,0:2].clone()
-    # out[:,:, l//4:3*l//4,l//4:3*l//4] = fake_data[:,:,l//4:3*l//4,l//4:3*l//4]
     return out
 
 def crop(fake_data, l):
