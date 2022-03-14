@@ -48,8 +48,8 @@ class Config():
         # self.gs[0] = 1
     
     def update_params(self):
-        self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
-            self.nz, 512, 256, 128, self.n_phases]
+        self.df[0] = self.n_phases
+        self.gf[-1] =  self.n_phases
         if self.image_type=='colour':
             self.net_type = 'conv_resize'
             self.lays = 5

@@ -210,7 +210,7 @@ def update_discriminator(c):
             dk.append(4)
             ds.append(2)
             dp.append(1)
-            df.append(int(np.max([2**(layer+6), 512])))
+            df.append(int(np.min([2**(layer+6), 512])))
             layer += 1
         elif out_check<1:
             dp[layer] = int(round((2+dk[layer]-out)/2))
