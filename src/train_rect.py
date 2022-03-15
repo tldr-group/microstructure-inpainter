@@ -183,7 +183,7 @@ class RectWorker(QObject):
         print("TRAINING FINISHED")
     
     def generate(self):
-        print("Generating new inpainted imgae")
+        print("Generating new inpainted image")
         device = torch.device(self.c.device_name if(
             torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
         netG = self.netG().to(device)

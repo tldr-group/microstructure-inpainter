@@ -336,7 +336,6 @@ def post_process(img, c):
         for b in range(bs):
             for i, ph in enumerate(phases):
                 col = next(color)
-                print(ph, col)
                 col = torch.tile(torch.Tensor(col[0:3]).unsqueeze(1).unsqueeze(1), (x,y))
                 out[b] = torch.where((img[b] == ph), col, out[b])
         out = out
