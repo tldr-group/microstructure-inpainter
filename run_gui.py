@@ -1,7 +1,7 @@
 import sys
-from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QMenuBar, QAction, QComboBox, QLabel
-from PyQt5.QtGui import QIcon, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
-from PyQt5.QtCore import QPoint, QRect, QPointF, QObject, QThread, pyqtSignal, QTimeLine
+from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QAction, QComboBox, QLabel
+from PyQt5.QtGui import QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
+from PyQt5.QtCore import QPoint, QRect, QPointF, QThread, QTimeLine
 import matplotlib.pyplot as plt
 from sympy import re
 from src.train_poly import PolyWorker
@@ -19,11 +19,11 @@ class MainWindow(QMainWindow):
 
     def initUI(self):
         
-        self.setGeometry(30,30,600,400)
+        # self.setGeometry(30,30,600,400)
         self.setWindowTitle('Microstructure Inpainter')
         self.painter_widget = PainterWidget(self) 
         self.setCentralWidget(self.painter_widget)
-        self.setGeometry(30, 30, self.painter_widget.image.width(), self.painter_widget.image.height())
+        self.setGeometry(30, 30, self.painter_widget.image.width(), self.painter_widget.image.height()+70)
         self.show()
 
 class PainterWidget(QWidget):
@@ -32,7 +32,6 @@ class PainterWidget(QWidget):
         self.parent = parent
         self.image = QPixmap("data/nmc.png")
         self.img_path = "data/nmc.png"
-        self.parent.resize(self.image.width(), self.image.height())
         self.shape = 'rect'
         self.image_type = 'n-phase'
         self.poly = []
@@ -112,7 +111,7 @@ class PainterWidget(QWidget):
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
-        self.parent.setGeometry(30, 30, self.image.width(), self.image.height()+40)
+        self.parent.setGeometry(30, 30, self.image.width(), self.image.height()+70)
         self.update()
 
 
