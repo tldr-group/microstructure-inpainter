@@ -18,7 +18,7 @@ class Config():
         self.beta1 = 0.9
         self.beta2 = 0.999
         self.num_epochs = 250
-        self.iters = 1000
+        self.iters = 100
         self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10

@@ -19,9 +19,14 @@ class RectWorker(QObject):
         self.nc = nc
         self.mask = mask
         self.unmasked = unmasked
+        self.quit_flag = False
         
     finished = pyqtSignal()
     progress = pyqtSignal(int, int, float)
+
+    def stop(self):
+        self.quit_flag = True
+
 
     def train(self):
         """[summary]
@@ -35,6 +40,8 @@ class RectWorker(QObject):
         :param offline: [description], defaults to True
         :type offline: bool, optional
         """
+
+        # Set up slot for listening for quit signal
 
         # Assign torch device
         offline = True
@@ -78,98 +85,103 @@ class RectWorker(QObject):
         if not overwrite:
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
-
-        # wandb_init(tag, offline)
-        # wandb.watch(netD, log='all', log_freq=100)
-        # wandb.watch(netG, log='all', log_freq=100)
-        for epoch in range(num_epochs):
+        max_iters = num_epochs*iters
+        i=0
+        epoch = 0
+        while not self.quit_flag and i<max_iters:
             times = []
-            for i in range(iters):
-                # Discriminator Training
-                if ('cuda' in str(device)) and (ngpu > 1):
-                    start_overall = torch.cuda.Event(enable_timing=True)
-                    end_overall = torch.cuda.Event(enable_timing=True)
-                    start_overall.record()
-                else:
-                    start_overall = time.time()
+            # Discriminator Training
+            if ('cuda' in str(device)) and (ngpu > 1):
+                start_overall = torch.cuda.Event(enable_timing=True)
+                end_overall = torch.cuda.Event(enable_timing=True)
+                start_overall.record()
+            else:
+                start_overall = time.time()
+
+            
+            netD.zero_grad()
+
+            d_noise = make_noise(noise.detach(), c.seed_x, c.seed_y, c, device)
+            fake_data = netG(d_noise).detach()
+            fake_data = crop(fake_data,dl)
+            real_data = batch_real(training_imgs, dl, batch_size, c.mask_coords).to(device)
+            # Train on real
+            out_real = netD(real_data).mean()
+            # train on fake images
+            out_fake = netD(fake_data).mean()
+            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, dl, device, Lambda, nc)
+
+            # Compute the discriminator loss and backprop
+            disc_cost = out_fake - out_real + gradient_penalty
+            disc_cost.backward()
+
+            optD.step()
+            
+
+            # Log results
+            # if not offline:
+            #     wandb.log({'Gradient penalty': gradient_penalty.item()})
+            #     wandb.log({'Wass': out_real.item() - out_fake.item()})
+            #     wandb.log({'Discriminator real': out_real.item()})
+            #     wandb.log({'Discriminator fake': out_fake.item()})
+
+            # Generator training
+            if (i % int(critic_iters)) == 0:
+                netG.zero_grad()
+                optNoise.zero_grad()
+                noise_G = make_noise(noise, c.seed_x, c.seed_y, c, device)
+                # Forward pass through G with noise vector
+                fake_data = netG(noise_G)
+                output = -netD(crop(fake_data, dl)).mean()
+                pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
+                output += pw
+                # Calculate loss for G and backprop
+                output.backward(retain_graph=True)
+                optG.step()
+                optNoise.step()
+                # noise not a leaf tensor?!
+                with torch.no_grad():
+                    noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
+                    noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
+            # if not offline:
+            #     wandb.log({"Pixel loss": pw.item()})
+            #     wandb.log({"Total G loss": output.item()})
+
+            if ('cuda' in str(device)) and (ngpu > 1):
+                end_overall.record()
+                torch.cuda.synchronize()
+                times.append(start_overall.elapsed_time(end_overall))
+            else:
+                end_overall = time.time()
+                times.append(end_overall-start_overall)
+
+
+            # Every 50 iters log images and useful metrics
+            if i % 50 == 0:
+                with torch.no_grad():
+                    torch.save(netG.state_dict(), f'{path}/Gen.pt')
+                    torch.save(netD.state_dict(), f'{path}/Disc.pt')
+                    # wandb_save_models(f'{path}/Disc.pt')
+                    # wandb_save_models(f'{path}/Gen.pt')
+                    plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device)[0].unsqueeze(0)
+                    img = netG(plot_noise).detach()
+                    mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
+                    # plot_img(img, i, epoch, path, offline)
+                    # plot_examples(img, mask.clone(), unmasked.clone(), mse, offline)
+                    # progress(i, iters, epoch, num_epochs,
+                    #             timed=np.mean(times))
+                    update_pixmap_rect(training_imgs, img, c)
+                    
+                    self.progress.emit(i, epoch, mse)
+                    times = []
+            i+=1
+            if i%iters==0:
+                epoch +=1
+            if self.quit_flag:
+                self.finished.emit()
+                print("TRAINING FINISHED")
+                break
+        
 
                 
-                netD.zero_grad()
-
-                d_noise = make_noise(noise.detach(), c.seed_x, c.seed_y, c, device)
-                fake_data = netG(d_noise).detach()
-                fake_data = crop(fake_data,dl)
-                real_data = batch_real(training_imgs, dl, batch_size).to(device)
-                # Train on real
-                out_real = netD(real_data).mean()
-                # train on fake images
-                out_fake = netD(fake_data).mean()
-                gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, dl, device, Lambda, nc)
-
-                # Compute the discriminator loss and backprop
-                disc_cost = out_fake - out_real + gradient_penalty
-                disc_cost.backward()
-
-                optD.step()
-                
-
-                # Log results
-                # if not offline:
-                #     wandb.log({'Gradient penalty': gradient_penalty.item()})
-                #     wandb.log({'Wass': out_real.item() - out_fake.item()})
-                #     wandb.log({'Discriminator real': out_real.item()})
-                #     wandb.log({'Discriminator fake': out_fake.item()})
-
-                # Generator training
-                if (i % int(critic_iters)) == 0:
-                    netG.zero_grad()
-                    optNoise.zero_grad()
-                    noise_G = make_noise(noise, c.seed_x, c.seed_y, c, device)
-                    # Forward pass through G with noise vector
-                    fake_data = netG(noise_G)
-                    output = -netD(crop(fake_data, dl)).mean()
-                    pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
-                    output += pw
-                    # Calculate loss for G and backprop
-                    output.backward(retain_graph=True)
-                    optG.step()
-                    optNoise.step()
-                    # noise not a leaf tensor?!
-                    with torch.no_grad():
-                        noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                        noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                # if not offline:
-                #     wandb.log({"Pixel loss": pw.item()})
-                #     wandb.log({"Total G loss": output.item()})
-
-                if ('cuda' in str(device)) and (ngpu > 1):
-                    end_overall.record()
-                    torch.cuda.synchronize()
-                    times.append(start_overall.elapsed_time(end_overall))
-                else:
-                    end_overall = time.time()
-                    times.append(end_overall-start_overall)
-
-
-                # Every 50 iters log images and useful metrics
-                if i % 50 == 0:
-                    with torch.no_grad():
-                        torch.save(netG.state_dict(), f'{path}/Gen.pt')
-                        torch.save(netD.state_dict(), f'{path}/Disc.pt')
-                        # wandb_save_models(f'{path}/Disc.pt')
-                        # wandb_save_models(f'{path}/Gen.pt')
-                        plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device)[0].unsqueeze(0)
-                        img = netG(plot_noise).detach()
-                        mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
-                        # plot_img(img, i, epoch, path, offline)
-                        # plot_examples(img, mask.clone(), unmasked.clone(), mse, offline)
-                        # progress(i, iters, epoch, num_epochs,
-                        #             timed=np.mean(times))
-                        update_pixmap_rect(training_imgs, img, c)
-                        
-                        self.progress.emit(i, epoch, mse)
-                        times = []
-
-        self.finished.emit()
-        print("TRAINING FINISHED")
 

@@ -288,17 +288,20 @@ def batch_real_poly(img, l, bs, real_seeds):
         data[i] = img[:, x:x+l, y:y+l]
     return data
 
-def batch_real(img, l, bs):
+def batch_real(img, l, bs, mask_coords):
     """[summary]
     :param training_imgs: [description]
     :type training_imgs: [type]
     :return: [description]
     :rtype: [type]
     """
+    x1, x2, y1, y2 = mask_coords
     n_ph, x_max, y_max = img.shape
     data = torch.zeros((bs, n_ph, l, l))
     for i in range(bs):
         x, y = torch.randint(x_max - l, (1,)), torch.randint(y_max - l, (1,))
+        while (x1<x+l and x1>x-l) and (y1<y+l and y1>y-l):
+            x, y = torch.randint(x_max - l, (1,)), torch.randint(y_max - l, (1,))
         data[i] = img[:, x:x+l, y:y+l]
     return data
 

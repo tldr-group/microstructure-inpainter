@@ -11,7 +11,7 @@ from src.networks import make_nets_rect, make_nets_poly
 import src.util as util
 from matplotlib.path import Path
 import numpy as np
-import time
+import os
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -30,8 +30,8 @@ class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/cement.png")
-        self.img_path = "data/cement.png"
+        self.image = QPixmap("data/nanofibers.png")
+        self.img_path = "data/nanofibers.png"
         self.parent.resize(self.image.width(), self.image.height())
         self.shape = 'rect'
         self.image_type = 'colour'
@@ -48,7 +48,6 @@ class PainterWidget(QWidget):
         self.stopTrain.setText("Stop")
         self.stopTrain.move(10,10)
         self.stopTrain.hide()
-        self.stopTrain.clicked.connect(self.stop_train)
         
 
         loadAct = QAction('Load', self)
@@ -81,6 +80,12 @@ class PainterWidget(QWidget):
         selector.addWidget(self.selectorBox)
         self.selectorBox.activated[str].connect(self.onShapeSelected)
 
+        saveAct = QAction('Save', self)
+        saveAct.setStatusTip('Save inpainted image')
+        saveAct.triggered.connect(self.onSaveClick)
+        save = parent.addToolBar('&Save')
+        save.addAction(saveAct)
+
         parent.addToolBarBreak()
 
         label = parent.addToolBar('Step Label')
@@ -93,8 +98,6 @@ class PainterWidget(QWidget):
 
         self.show()
      
-
-
     def show_next_img(self, i):
         self.setPixmap(f"data/temp/temp{i}.png")
         
@@ -114,6 +117,15 @@ class PainterWidget(QWidget):
         if files:
             self.setPixmap(files[0])
             self.img_path = files[0]
+
+    def onSaveClick(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        fileName, _ = QFileDialog.getSaveFileName(self, "Save Image", os.getcwd(), "All Files (*)", options=options)
+        if fileName:
+            img = plt.imread('data/temp/temp.png')
+            plt.imsave(fileName, img)
+            print(f"Image saved as: {fileName}")
 
     def paintEvent(self, event):
         qp = QPainter(self)
@@ -285,12 +297,19 @@ class PainterWidget(QWidget):
         self.worker.moveToThread(self.thread)
         # Step 5: Connect signals and slots
         self.thread.started.connect(self.worker.train)
+        self.stopTrain.clicked.connect(lambda: self.worker.stop())
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.finished.connect(self.stop_train)
         self.thread.finished.connect(self.thread.deleteLater)
         self.worker.progress.connect(self.progress)
         # Step 6: Start the thread
         self.thread.start()
+    
+    def stop_train(self):
+        self.training = False
+        self.stopTrain.hide()
+
 
     def progress(self, l, e, mse):
         self.step_label.setText(f'Iter: {l}, Epoch: {e}, MSE: {mse:.2g}')
@@ -299,12 +318,7 @@ class PainterWidget(QWidget):
         else:
             self.image = QPixmap("data/temp/temp.png")
     
-    def stop_train(self):
-        print('Stopping training')
-        self.training = False
-        self.thread.quit()
-        self.worker.deleteLater()
-        self.thread.deleteLater()
+
 def main():
 
     app = QApplication(sys.argv)
