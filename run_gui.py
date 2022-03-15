@@ -30,11 +30,11 @@ class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/nanofibers.png")
-        self.img_path = "data/nanofibers.png"
+        self.image = QPixmap("data/nmc.png")
+        self.img_path = "data/nmc.png"
         self.parent.resize(self.image.width(), self.image.height())
         self.shape = 'rect'
-        self.image_type = 'colour'
+        self.image_type = 'n-phase'
         self.poly = []
         self.old_polys = []
         self.border = True
@@ -237,7 +237,7 @@ class PainterWidget(QWidget):
             # Use dl to update discrimantor network structure
             c.image_type = self.image_type
             if self.image_type == 'n-phase':
-                c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
+                c.n_phases = nc
             elif self.image_type == 'colour':
                 c.n_phases = 3
             else:

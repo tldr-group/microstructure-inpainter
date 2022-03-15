@@ -9,6 +9,7 @@ import os
 import subprocess
 import shutil
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import cm
 from torch import nn
 import tifffile
 
@@ -144,7 +145,7 @@ def preprocess(data_path, imtype, load=True):
         elif imtype == 'grayscale':
             img = np.expand_dims(img, 0)
             img = torch.tensor(img)
-            return img, 1
+            return img, len(phases)
         # x, y, z = img.shape
 
 
@@ -325,17 +326,22 @@ def post_process(img, c):
     """
     img = img.detach().cpu()
     if c.image_type=='n-phase':
-        phases = np.arange(c.n_phases+1)
-        img = torch.argmax(img, dim=1).numpy()
+        phases = np.arange(c.n_phases)
+        color = iter(cm.rainbow(np.linspace(0, 1, c.n_phases)))
+        img = torch.argmax(img, dim=1)
         if len(phases) > 10:
             raise AssertionError('Image not one hot encoded.')
         bs, x, y = img.shape
-        out = torch.zeros(bs, len(phases), x, y)
+        out = torch.zeros((bs, 3, x, y))
         for b in range(bs):
             for i, ph in enumerate(phases):
-                out[b,i][img[b] == ph] = 1
+                col = next(color)
+                print(ph, col)
+                col = torch.tile(torch.Tensor(col[0:3]).unsqueeze(1).unsqueeze(1), (x,y))
+                out[b] = torch.where((img[b] == ph), col, out[b])
+        out = out
     else:
-        out = img
+        out = img.numpy()
     return out
 
 def crop(fake_data, l):

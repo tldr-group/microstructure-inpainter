@@ -168,6 +168,7 @@ class RectWorker(QObject):
                     img = netG(plot_noise).detach()
                     mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
 
+
                     update_pixmap_rect(training_imgs, img, c)
                     
                     self.progress.emit(i, epoch, mse)
