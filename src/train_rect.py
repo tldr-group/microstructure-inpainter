@@ -194,7 +194,8 @@ class RectWorker(QObject):
         netD.load_state_dict(torch.load(f"{self.c.path}/Disc.pt"))
         noise = torch.load(f'{self.c.path}/noise.pt')
         with torch.no_grad():
-            plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[0].unsqueeze(0)
+            idx = np.random.randint(self.c.batch_size)
+            plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[idx].unsqueeze(0)
             img = netG(plot_noise).detach()
             update_pixmap_rect(self.training_imgs, img, self.c)
 
