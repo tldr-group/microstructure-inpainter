@@ -346,6 +346,9 @@ class PainterWidget(QWidget):
 def main():
 
     app = QApplication(sys.argv)
+    qss="style.qss"
+    with open(qss,"r") as fh:
+        app.setStyleSheet(fh.read())
     window = MainWindow()
 
     sys.exit(app.exec_())
