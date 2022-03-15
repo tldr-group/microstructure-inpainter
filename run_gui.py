@@ -23,7 +23,8 @@ class MainWindow(QMainWindow):
         self.setWindowTitle('Microstructure Inpainter')
         self.painter_widget = PainterWidget(self) 
         self.setCentralWidget(self.painter_widget)
-        self.setGeometry(30, 30, self.painter_widget.image.width(), self.painter_widget.image.height()+70)
+        self.extra_padding = 100
+        self.setGeometry(30, 30, self.painter_widget.image.width(), self.painter_widget.image.height()+self.extra_padding)
         self.show()
 
 class PainterWidget(QWidget):
@@ -111,7 +112,7 @@ class PainterWidget(QWidget):
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
-        self.parent.setGeometry(30, 30, self.image.width(), self.image.height()+70)
+        self.parent.setGeometry(30, 30, self.image.width(), self.image.height()+self.parent.extra_padding)
         self.update()
 
 
