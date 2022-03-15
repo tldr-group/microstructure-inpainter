@@ -179,8 +179,9 @@ class RectWorker(QObject):
                 epoch +=1
             if self.quit_flag:
                 self.finished.emit()
-                print("TRAINING FINISHED")
-                break
+                print("TRAINING QUTTING")
+        self.finished.emit()
+        print("TRAINING FINISHED")
         
 
                 

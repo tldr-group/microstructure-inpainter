@@ -20,8 +20,13 @@ class PolyWorker(QObject):
         self.mask = mask
         self.overwrite = overwrite
         self.frames = frames
+        self.quit_flag = False
+
     finished = pyqtSignal()
     progress = pyqtSignal(int, int, float)
+
+    def stop(self):
+        self.quit_flag = True
 
     def train(self):
         """[summary]
@@ -75,79 +80,76 @@ class PolyWorker(QObject):
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
 
-        wandb_init(tag, offline)
-        wandb.watch(netD, log='all', log_freq=100)
-        wandb.watch(netG, log='all', log_freq=100)
 
-        for epoch in range(num_epochs):
+        max_iters = num_epochs*iters
+        i=0
+        epoch = 0
+        while not self.quit_flag and i<max_iters:
             times = []
-            for i in range(iters):
-                # Discriminator Training
-                if ('cuda' in str(device)) and (ngpu > 1):
-                    start_overall = torch.cuda.Event(enable_timing=True)
-                    end_overall = torch.cuda.Event(enable_timing=True)
-                    start_overall.record()
-                else:
-                    start_overall = time.time()
+            # Discriminator Training
+            if ('cuda' in str(device)) and (ngpu > 1):
+                start_overall = torch.cuda.Event(enable_timing=True)
+                end_overall = torch.cuda.Event(enable_timing=True)
+                start_overall.record()
+            else:
+                start_overall = time.time()
 
-                netD.zero_grad()
+            netD.zero_grad()
 
+            noise = torch.randn(batch_size, nz, lz, lz, device=device)
+            fake_data = netG(noise).detach()
+            real_data = batch_real_poly(training_imgs, l, batch_size, real_seeds).to(device)
+
+            # Train on real
+            out_real = netD(real_data).mean()
+            # train on fake images
+            out_fake = netD(fake_data).mean()
+            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, Lambda, nc)
+
+            # Compute the discriminator loss and backprop
+            disc_cost = out_fake - out_real + gradient_penalty
+            disc_cost.backward()
+
+            optD.step()
+
+            # Generator training
+            if i % int(critic_iters) == 0:
+                netG.zero_grad()
                 noise = torch.randn(batch_size, nz, lz, lz, device=device)
-                fake_data = netG(noise).detach()
-                real_data = batch_real_poly(training_imgs, l, batch_size, real_seeds).to(device)
+                # Forward pass through G with noise vector
+                fake_data = netG(noise)
+                output = -netD(fake_data).mean()
 
-                # Train on real
-                out_real = netD(real_data).mean()
-                # train on fake images
-                out_fake = netD(fake_data).mean()
-                gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, Lambda, nc)
+                # Calculate loss for G and backprop
+                output.backward()
+                optG.step()
 
-                # Compute the discriminator loss and backprop
-                disc_cost = out_fake - out_real + gradient_penalty
-                disc_cost.backward()
-
-                optD.step()
-
-                # Log results
-                if not offline:
-                    wandb.log({'Gradient penalty': gradient_penalty.item()})
-                    wandb.log({'Wass': out_real.item() - out_fake.item()})
-                    wandb.log({'Discriminator real': out_real.item()})
-                    wandb.log({'Discriminator fake': out_fake.item()})
-
-                # Generator training
-                if i % int(critic_iters) == 0:
-                    netG.zero_grad()
-                    noise = torch.randn(batch_size, nz, lz, lz, device=device)
-                    # Forward pass through G with noise vector
-                    fake_data = netG(noise)
-                    output = -netD(fake_data).mean()
-
-                    # Calculate loss for G and backprop
-                    output.backward()
-                    optG.step()
-
-                if ('cuda' in str(device)) and (ngpu > 1):
-                    end_overall.record()
-                    torch.cuda.synchronize()
-                    times.append(start_overall.elapsed_time(end_overall))
-                else:
-                    end_overall = time.time()
-                    times.append(end_overall-start_overall)
+            if ('cuda' in str(device)) and (ngpu > 1):
+                end_overall.record()
+                torch.cuda.synchronize()
+                times.append(start_overall.elapsed_time(end_overall))
+            else:
+                end_overall = time.time()
+                times.append(end_overall-start_overall)
 
 
-                # Every 50 iters log images and useful metrics
-                if i == 0:
-                    
-                    torch.save(netG.state_dict(), f'{path}/Gen.pt')
-                    torch.save(netD.state_dict(), f'{path}/Disc.pt')
-                    # wandb_save_models(f'{path}/Disc.pt')
-                    # wandb_save_models(f'{path}/Gen.pt')
-                    mse = self.inpaint(netG)
-                    self.progress.emit(i, epoch, mse)
-                    times = []
+            # Every 50 iters log images and useful metrics
+            if i == 0:
+                
+                torch.save(netG.state_dict(), f'{path}/Gen.pt')
+                torch.save(netD.state_dict(), f'{path}/Disc.pt')
+                mse = self.inpaint(netG)
+                self.progress.emit(i, epoch, mse)
+                times = []
 
-        self.finish.emit()
+            i+=1
+            if i%iters==0:
+                epoch +=1
+            if self.quit_flag:
+                self.finished.emit()
+                print("TRAINING QUITTING")
+        self.finished.emit()
+        print("TRAINING FINISHED")
 
     def inpaint(self, netG):
         img = preprocess(self.c.data_path, self.c.image_type)[0]
@@ -190,9 +192,10 @@ class PolyWorker(QObject):
         return mse
 
     def optimise_noise(self, lx, ly, img, mask, netG):
-        target = img.cuda()
+        
         device = torch.device("cuda:0" if(
             torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")        
+        target = img.to(device)
         for ch in range(self.c.n_phases):
             target[ch][mask==1] = -1
         # plt.imsave('test2.png', torch.cat([target.permute(1,2,0) for i in range(3)], -1).cpu().numpy())
