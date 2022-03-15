@@ -10,7 +10,7 @@ import sys
 from PyQt5.QtCore import QObject, pyqtSignal
 
 class RectWorker(QObject):
-    def __init__(self, c, netG, netD, training_imgs, nc, mask, unmasked):
+    def __init__(self, c, netG, netD, training_imgs, nc, mask=None, unmasked=None):
         super().__init__()
         self.c = c
         self.netG = netG
@@ -72,7 +72,7 @@ class RectWorker(QObject):
         # init noise
         noise = torch.nn.Parameter(torch.randn(batch_size, nz, c.seed_x, c.seed_y, requires_grad=True, device=device))
         optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
-        # noise = torch.randn((batch_size, nz, c.seed_x, c.seed_y)).to(device)
+
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
@@ -85,6 +85,7 @@ class RectWorker(QObject):
         if not overwrite:
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
+            noise = torch.load(f'{c.path}/noise.pt')
         max_iters = num_epochs*iters
         i=0
         epoch = 0
@@ -161,15 +162,12 @@ class RectWorker(QObject):
                 with torch.no_grad():
                     torch.save(netG.state_dict(), f'{path}/Gen.pt')
                     torch.save(netD.state_dict(), f'{path}/Disc.pt')
-                    # wandb_save_models(f'{path}/Disc.pt')
-                    # wandb_save_models(f'{path}/Gen.pt')
+                    torch.save(noise, f'{path}/noise.pt')
+
                     plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device)[0].unsqueeze(0)
                     img = netG(plot_noise).detach()
                     mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
-                    # plot_img(img, i, epoch, path, offline)
-                    # plot_examples(img, mask.clone(), unmasked.clone(), mse, offline)
-                    # progress(i, iters, epoch, num_epochs,
-                    #             timed=np.mean(times))
+
                     update_pixmap_rect(training_imgs, img, c)
                     
                     self.progress.emit(i, epoch, mse)
@@ -182,6 +180,26 @@ class RectWorker(QObject):
                 print("TRAINING QUTTING")
         self.finished.emit()
         print("TRAINING FINISHED")
+    
+    def generate(self):
+        print("Generating new inpainted imgae")
+        device = torch.device(self.c.device_name if(
+            torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
+        netG = self.netG().to(device)
+        netD = self.netD().to(device)
+        if ('cuda' in str(device)) and (self.c.ngpu > 1):
+            netD = (nn.DataParallel(netD, list(range(self.c.ngpu)))).to(device)
+            netG = nn.DataParallel(netG, list(range(self.c.ngpu))).to(device)
+        netG.load_state_dict(torch.load(f"{self.c.path}/Gen.pt"))
+        netD.load_state_dict(torch.load(f"{self.c.path}/Disc.pt"))
+        noise = torch.load(f'{self.c.path}/noise.pt')
+        with torch.no_grad():
+            plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[0].unsqueeze(0)
+            img = netG(plot_noise).detach()
+            update_pixmap_rect(self.training_imgs, img, self.c)
+
+
+        pass
         
 
                 

@@ -43,12 +43,18 @@ class PainterWidget(QWidget):
         self.end = QPoint()
         self.step_label = QLabel('Iter: 0, Epoch: 0, MSE: 0')
         self.training = False
+        self.generate = False
 
         self.stopTrain = QPushButton('Stop', self)
         self.stopTrain.setText("Stop")
         self.stopTrain.move(10,10)
         self.stopTrain.hide()
-        
+
+        self.generateBtn = QPushButton('Generate', self)
+        self.generateBtn.setText("Generate")
+        self.generateBtn.move(10,10)
+        self.generateBtn.hide()
+        self.generateBtn.clicked.connect(self.generateInpaint)
 
         loadAct = QAction('Load', self)
         loadAct.setStatusTip('Load new image from file')
@@ -201,8 +207,10 @@ class PainterWidget(QWidget):
 
     def onTrainClick(self, event):
         self.training = True
+        self.generate = False
 
         self.stopTrain.show()
+        self.generateBtn.hide()
         if self.shape=='rect':
             x1, x2, y1, y2 = self.begin.x(), self.end.x(), self.begin.y(), self.end.y()
             # get relative coordinates
@@ -215,7 +223,7 @@ class PainterWidget(QWidget):
             y1 = int(y1*r.height()/h)
             y2 = int(y2*r.height()/h)
 
-            tag = 'test'
+            tag = 'rect'
             c = Config(tag)
             c.data_path = self.img_path
             c.mask_coords = (x1,x2,y1,y2)
@@ -309,6 +317,7 @@ class PainterWidget(QWidget):
     def stop_train(self):
         self.training = False
         self.stopTrain.hide()
+        self.generateBtn.show()
 
 
     def progress(self, l, e, mse):
@@ -317,6 +326,21 @@ class PainterWidget(QWidget):
             self.timeline.start()
         else:
             self.image = QPixmap("data/temp/temp.png")
+
+    def generateInpaint(self):
+        
+        if self.shape == 'rect':
+            tag = 'rect'
+            c = Config(tag)
+            c.load()
+            overwrite = False
+            original_img, nc = util.preprocess('data/temp/temp.png', self.image_type)
+            netD, netG = make_nets_rect(c, overwrite)
+            self.worker = RectWorker(c, netG, netD, original_img, nc)
+            self.worker.generate()
+            self.image = QPixmap("data/temp/temp.png")
+            self.update()
+        
     
 
 def main():
