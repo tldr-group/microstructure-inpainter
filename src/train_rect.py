@@ -63,8 +63,8 @@ class RectWorker(QObject):
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
-        noise = torch.randn(batch_size, nz, c.seed_x, c.seed_y, requires_grad=True, device=device)
-        optNoise = torch.optim.Adam(params=[torch.nn.Parameter(noise)], lr=0.01)
+        noise = torch.nn.Parameter(torch.randn(batch_size, nz, c.seed_x, c.seed_y, requires_grad=True, device=device))
+        optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
         # noise = torch.randn((batch_size, nz, c.seed_x, c.seed_y)).to(device)
         # Define Generator network
         netG = Gen().to(device)
@@ -123,10 +123,10 @@ class RectWorker(QObject):
                 # Generator training
                 if (i % int(critic_iters)) == 0:
                     netG.zero_grad()
-                    # optNoise.zero_grad()
-                    noise = make_noise(noise, c.seed_x, c.seed_y, c, device)
+                    optNoise.zero_grad()
+                    noise_G = make_noise(noise, c.seed_x, c.seed_y, c, device)
                     # Forward pass through G with noise vector
-                    fake_data = netG(noise)
+                    fake_data = netG(noise_G)
                     output = -netD(crop(fake_data, dl)).mean()
                     pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
                     output += pw
@@ -134,11 +134,10 @@ class RectWorker(QObject):
                     output.backward(retain_graph=True)
                     optG.step()
                     optNoise.step()
-                    print(noise[0,0])
-                    # with torch.no_grad():
-                    #     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                    #     noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                
+                    # noise not a leaf tensor?!
+                    with torch.no_grad():
+                        noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
+                        noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
                 # if not offline:
                 #     wandb.log({"Pixel loss": pw.item()})
                 #     wandb.log({"Total G loss": output.item()})
