@@ -134,7 +134,7 @@ class PolyWorker(QObject):
 
 
             # Every 50 iters log images and useful metrics
-            if i == 0:
+            if i%50 == 0:
                 
                 torch.save(netG.state_dict(), f'{path}/Gen.pt')
                 torch.save(netD.state_dict(), f'{path}/Disc.pt')
