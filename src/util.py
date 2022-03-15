@@ -340,7 +340,7 @@ def post_process(img, c):
                 out[b] = torch.where((img[b] == ph), col, out[b])
         out = out
     else:
-        out = img.numpy()
+        out = img
     return out
 
 def crop(fake_data, l):

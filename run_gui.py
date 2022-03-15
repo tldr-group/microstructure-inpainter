@@ -75,7 +75,7 @@ class PainterWidget(QWidget):
         border.addAction(borderAct)
 
         self.ImageTypeBox = QComboBox()
-        self.ImageTypeBox.insertItems(1,['colour', 'n-phase', 'grayscale'])
+        self.ImageTypeBox.insertItems(1,['n-phase', 'colour', 'grayscale'])
         selector = parent.addToolBar("Image Type")
         selector.addWidget(self.ImageTypeBox)
         self.ImageTypeBox.activated[str].connect(self.onImageTypeSelected)
