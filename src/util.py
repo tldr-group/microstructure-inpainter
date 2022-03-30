@@ -328,6 +328,7 @@ def post_process(img, c):
     if c.image_type=='n-phase':
         phases = np.arange(c.n_phases)
         color = iter(cm.rainbow(np.linspace(0, 1, c.n_phases)))
+        # color = iter([[0,0,0],[0.5,0.5,0.5], [1,1,1]])
         img = torch.argmax(img, dim=1)
         if len(phases) > 10:
             raise AssertionError('Image not one hot encoded.')

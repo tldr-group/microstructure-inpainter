@@ -6,6 +6,7 @@ class Config():
     """
     def __init__(self, tag):
         self.tag = tag
+        self.cli = False
         self.path = f'runs/{self.tag}'
         self.data_path = ''
         self.mask_coords = []

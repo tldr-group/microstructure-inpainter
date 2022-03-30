@@ -172,6 +172,8 @@ class RectWorker(QObject):
                     update_pixmap_rect(training_imgs, img, c)
                     
                     self.progress.emit(i, epoch, mse)
+                    if c.cli:
+                        print(f'Iter: {i}, Epoch: {epoch}, MSE: {mse:.2g}')
                     times = []
             i+=1
             if i%iters==0:
@@ -199,10 +201,4 @@ class RectWorker(QObject):
             plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[idx].unsqueeze(0)
             img = netG(plot_noise).detach()
             update_pixmap_rect(self.training_imgs, img, self.c)
-
-
-        pass
         
-
-                
-
