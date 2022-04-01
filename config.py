@@ -15,10 +15,10 @@ class Config():
         self.l = 128
         self.n_phases = 2
         # Training hyperparams
-        self.batch_size = 8
+        self.batch_size = 32
         self.beta1 = 0.9
         self.beta2 = 0.999
-        self.num_epochs = 250
+        self.num_epochs = 1000
         self.iters = 100
         self.lrg = 0.0005
         self.lr = 0.0005

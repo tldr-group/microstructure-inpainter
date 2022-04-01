@@ -1,6 +1,5 @@
-from time import sleep
-from tkinter import image_types
 import numpy as np
+import pandas as pd
 import torch
 from torch import autograd
 import wandb
@@ -10,8 +9,6 @@ import subprocess
 import shutil
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
-from torch import nn
-import tifffile
 
 # check for existing models and folders
 def check_existence(tag):
@@ -235,8 +232,10 @@ def update_pixmap_rect(raw, img, c):
     updated_pixmap = post_process(updated_pixmap, c).permute(0,2,3,1)
     if c.image_type=='grayscale':
         plt.imsave('data/temp/temp.png', updated_pixmap[0,...,0], cmap='gray')
+        return updated_pixmap[0,...,0]
     else:
         plt.imsave('data/temp/temp.png', updated_pixmap[0].numpy())
+        return updated_pixmap[0]
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
@@ -306,14 +305,15 @@ def batch_real(img, l, bs, mask_coords):
         data[i] = img[:, x:x+l, y:y+l]
     return data
 
-def pixel_wise_loss(fake_img, real_img, coeff=1, device=None):
+def pixel_wise_loss(fake_img, real_img, device=None):
     mask = real_img.clone().permute(1,2,0)
     mask = (mask[...,-1]==0).unsqueeze(0)
+    number_valid_pixels = mask.sum()
     mask = mask.repeat(fake_img.shape[0], fake_img.shape[1],1,1)
     fake_img = torch.where(mask==True, fake_img, torch.tensor(0).float().to(device))
     real_img = real_img.unsqueeze(0).repeat(fake_img.shape[0], 1 ,1, 1)[:,0:-1]
     real_img = torch.where(mask==True, real_img, torch.tensor(0).float().to(device))
-    return torch.nn.MSELoss(reduction='none')(fake_img, real_img)*coeff
+    return torch.nn.MSELoss(reduction='sum')(fake_img, real_img)/(number_valid_pixels*fake_img.shape[0]*fake_img.shape[1])
 
 # Evaluation util
 def post_process(img, c):
@@ -355,3 +355,30 @@ def make_noise(noise, seed_x, seed_y, c, device):
     rand = torch.randn_like(noise).to(device)*mask
     noise = noise*(mask==0)+rand
     return noise
+
+def check_convergence(mse, wass, mse_thresh=0.01, wass_thresh=4):
+    if mse<mse_thresh and wass<wass_thresh:
+        return True
+    else:
+        return False
+
+# Evaluation metrics
+
+def plot_mse(tag):
+    df = pd.read_pickle(f'runs/{tag}/metrics.pkl')
+    plt.figure()
+    plt.plot(df['time'], df['MSE'])
+    plt.xlabel('Time')
+    plt.ylabel("MSE")
+    plt.savefig(f'runs/{tag}/mse.png')
+    plt.close()
+
+def plot_wass(tag):
+    df = pd.read_pickle(f'runs/{tag}/metrics.pkl')
+    plt.figure()
+    plt.plot(df['time'], df['wass'])
+    plt.xlabel('Time')
+    plt.ylabel("Wass distance")
+    plt.savefig(f'runs/{tag}/wass.png')
+    plt.close()
+    

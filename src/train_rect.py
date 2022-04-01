@@ -1,12 +1,11 @@
+import pandas as pd
 from src.util import *
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import numpy as np
 import torch
 import torch.nn as nn
-import tifffile
 import time
-import sys
 from PyQt5.QtCore import QObject, pyqtSignal
 
 class RectWorker(QObject):
@@ -41,10 +40,7 @@ class RectWorker(QObject):
         :type offline: bool, optional
         """
 
-        # Set up slot for listening for quit signal
-
         # Assign torch device
-        offline = True
         overwrite = True
         c = self.c
         Gen = self.netG
@@ -65,8 +61,6 @@ class RectWorker(QObject):
         # Get train params
         l, dl, batch_size, beta1, beta2, num_epochs, iters, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
 
-        # mask = load_mask('data/mask.tif', device)
-        # unmasked = load_mask('data/unmasked.tif', device)
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
@@ -86,20 +80,28 @@ class RectWorker(QObject):
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
             noise = torch.load(f'{c.path}/noise.pt')
-        max_iters = num_epochs*iters
         i=0
         epoch = 0
-        while not self.quit_flag and i<max_iters:
-            times = []
-            # Discriminator Training
-            if ('cuda' in str(device)) and (ngpu > 1):
+        if c.cli:
+            mses = []
+            iter_list = []
+            time_list = []
+            wass_list = []
+
+
+        # start timing training
+        if ('cuda' in str(device)) and (ngpu > 1):
                 start_overall = torch.cuda.Event(enable_timing=True)
                 end_overall = torch.cuda.Event(enable_timing=True)
                 start_overall.record()
-            else:
-                start_overall = time.time()
+        else:
+            start_overall = time.time()
 
+        converged = False
+        converged_list = []
             
+        while not self.quit_flag and not converged:
+            # Discriminator Training
             netD.zero_grad()
 
             d_noise = make_noise(noise.detach(), c.seed_x, c.seed_y, c, device)
@@ -107,24 +109,18 @@ class RectWorker(QObject):
             fake_data = crop(fake_data,dl)
             real_data = batch_real(training_imgs, dl, batch_size, c.mask_coords).to(device)
             # Train on real
-            out_real = netD(real_data).mean()
+            out_real_batch = netD(real_data)
+            out_real = out_real_batch.mean()
             # train on fake images
             out_fake = netD(fake_data).mean()
             gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, dl, device, Lambda, nc)
 
             # Compute the discriminator loss and backprop
-            disc_cost = out_fake - out_real + gradient_penalty
+            wass = out_fake - out_real
+            disc_cost = wass + gradient_penalty
             disc_cost.backward()
 
             optD.step()
-            
-
-            # Log results
-            # if not offline:
-            #     wandb.log({'Gradient penalty': gradient_penalty.item()})
-            #     wandb.log({'Wass': out_real.item() - out_fake.item()})
-            #     wandb.log({'Discriminator real': out_real.item()})
-            #     wandb.log({'Discriminator fake': out_fake.item()})
 
             # Generator training
             if (i % int(critic_iters)) == 0:
@@ -134,27 +130,15 @@ class RectWorker(QObject):
                 # Forward pass through G with noise vector
                 fake_data = netG(noise_G)
                 output = -netD(crop(fake_data, dl)).mean()
-                pw = pixel_wise_loss(fake_data, mask, coeff=c.pw_coeff, device=device).mean()
-                output += pw
+                pw = pixel_wise_loss(fake_data, mask, device=device)
+                output += pw*c.pw_coeff
                 # Calculate loss for G and backprop
                 output.backward(retain_graph=True)
                 optG.step()
                 optNoise.step()
-                # noise not a leaf tensor?!
                 with torch.no_grad():
                     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
                     noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-            # if not offline:
-            #     wandb.log({"Pixel loss": pw.item()})
-            #     wandb.log({"Total G loss": output.item()})
-
-            if ('cuda' in str(device)) and (ngpu > 1):
-                end_overall.record()
-                torch.cuda.synchronize()
-                times.append(start_overall.elapsed_time(end_overall))
-            else:
-                end_overall = time.time()
-                times.append(end_overall-start_overall)
 
 
             # Every 50 iters log images and useful metrics
@@ -166,15 +150,31 @@ class RectWorker(QObject):
 
                     plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device)[0].unsqueeze(0)
                     img = netG(plot_noise).detach()
-                    mse = pixel_wise_loss(img, mask, coeff=1, device=device).mean()
 
-
-                    update_pixmap_rect(training_imgs, img, c)
-                    
-                    self.progress.emit(i, epoch, mse)
+                    pixmap = update_pixmap_rect(training_imgs, img, c)
+                    # tpc_loss = two_pc_metric(fake_data.detach().cpu(), tpc_real)
+                    # boundary_D = evaluate_D_on_boundary(netD, fake_data.detach(), c.dl, device)
+                    self.progress.emit(i, epoch, pw.item())
+                    if ('cuda' in str(device)) and (ngpu > 1):
+                        end_overall.record()
+                        torch.cuda.synchronize()
+                        t = start_overall.elapsed_time(end_overall)
+                    else:
+                        end_overall = time.time()
+                        t = end_overall-start_overall
                     if c.cli:
-                        print(f'Iter: {i}, Epoch: {epoch}, MSE: {mse:.2g}')
-                    times = []
+                        print(f'Iter: {i}, Time: {t:.1f}, MSE: {pw.item():.2g}, Wass: {abs(wass.item()):.2g}')
+                        time_list.append(t)
+                        mses.append(pw.item())
+                        wass_list.append(abs(wass.item()))
+                        iter_list.append(i)
+                        df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
+                        df.to_pickle(f'runs/{tag}/metrics.pkl')
+                    
+                    converged_list.append(check_convergence(pw.item(), abs(wass.item())))
+                    if np.sum(converged_list[-4:])==4:
+                        print("Training Converged")
+                        converged=True
             i+=1
             if i%iters==0:
                 epoch +=1
@@ -182,7 +182,7 @@ class RectWorker(QObject):
                 self.finished.emit()
                 print("TRAINING QUTTING")
         self.finished.emit()
-        print("TRAINING FINISHED")
+        print("TRAINING FINISHED")        
     
     def generate(self):
         print("Generating new inpainted image")
