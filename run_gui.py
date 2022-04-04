@@ -320,8 +320,8 @@ class PainterWidget(QWidget):
         self.generateBtn.show()
 
 
-    def progress(self, l, e, mse):
-        self.step_label.setText(f'Iter: {l}, Epoch: {e}, MSE: {mse:.2g}')
+    def progress(self, i, t, mse, wass):
+        self.step_label.setText(f'Iter: {i}, Time: {t}, MSE: {mse:.2g}, Wass: {mse:.2g}')
         if self.shape=='poly':
             self.timeline.start()
         else:

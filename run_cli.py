@@ -1,7 +1,5 @@
 import argparse
 import os
-import tifffile
-import torch
 from src import networks, util
 from src.train_rect import RectWorker
 from src.train_poly import PolyWorker
@@ -105,7 +103,7 @@ def main(mode, tag, coords, path, image_type, shape):
         c.image_type = c.image_type
         netD, netG = networks.make_nets_poly(c, overwrite)
         
-        worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, 10, overwrite)
+        worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
 
         if mode == 'train':
             worker.train()

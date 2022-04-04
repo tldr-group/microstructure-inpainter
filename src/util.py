@@ -356,7 +356,7 @@ def make_noise(noise, seed_x, seed_y, c, device):
     noise = noise*(mask==0)+rand
     return noise
 
-def check_convergence(mse, wass, mse_thresh=0.01, wass_thresh=4):
+def check_convergence(mse, wass, mse_thresh=1e-4, wass_thresh=1e-5):
     if mse<mse_thresh and wass<wass_thresh:
         return True
     else:
@@ -381,4 +381,3 @@ def plot_wass(tag):
     plt.ylabel("Wass distance")
     plt.savefig(f'runs/{tag}/wass.png')
     plt.close()
-    

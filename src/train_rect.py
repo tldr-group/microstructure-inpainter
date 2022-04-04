@@ -21,7 +21,7 @@ class RectWorker(QObject):
         self.quit_flag = False
         
     finished = pyqtSignal()
-    progress = pyqtSignal(int, int, float)
+    progress = pyqtSignal(int, int, float, float)
 
     def stop(self):
         self.quit_flag = True
@@ -59,7 +59,7 @@ class RectWorker(QObject):
         cudnn.benchmark = True
 
         # Get train params
-        l, dl, batch_size, beta1, beta2, num_epochs, iters, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
+        l, dl, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
 
         mask = mask.to(device)
         unmasked = unmasked.to(device)
@@ -81,12 +81,11 @@ class RectWorker(QObject):
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
             noise = torch.load(f'{c.path}/noise.pt')
         i=0
-        epoch = 0
-        if c.cli:
-            mses = []
-            iter_list = []
-            time_list = []
-            wass_list = []
+        t=0
+        mses = []
+        iter_list = []
+        time_list = []
+        wass_list = []
 
 
         # start timing training
@@ -100,7 +99,7 @@ class RectWorker(QObject):
         converged = False
         converged_list = []
             
-        while not self.quit_flag and not converged:
+        while not self.quit_flag and not converged and t<c.timeout and i<c.max_iters:
             # Discriminator Training
             netD.zero_grad()
 
@@ -109,8 +108,7 @@ class RectWorker(QObject):
             fake_data = crop(fake_data,dl)
             real_data = batch_real(training_imgs, dl, batch_size, c.mask_coords).to(device)
             # Train on real
-            out_real_batch = netD(real_data)
-            out_real = out_real_batch.mean()
+            out_real = netD(real_data).mean()
             # train on fake images
             out_fake = netD(fake_data).mean()
             gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, dl, device, Lambda, nc)
@@ -154,7 +152,7 @@ class RectWorker(QObject):
                     pixmap = update_pixmap_rect(training_imgs, img, c)
                     # tpc_loss = two_pc_metric(fake_data.detach().cpu(), tpc_real)
                     # boundary_D = evaluate_D_on_boundary(netD, fake_data.detach(), c.dl, device)
-                    self.progress.emit(i, epoch, pw.item())
+                    
                     if ('cuda' in str(device)) and (ngpu > 1):
                         end_overall.record()
                         torch.cuda.synchronize()
@@ -162,25 +160,35 @@ class RectWorker(QObject):
                     else:
                         end_overall = time.time()
                         t = end_overall-start_overall
+                    
+                    # Normalise wass for comparison
+                    wass = wass / np.prod(real_data.shape)
+
                     if c.cli:
                         print(f'Iter: {i}, Time: {t:.1f}, MSE: {pw.item():.2g}, Wass: {abs(wass.item()):.2g}')
-                        time_list.append(t)
-                        mses.append(pw.item())
-                        wass_list.append(abs(wass.item()))
-                        iter_list.append(i)
-                        df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
-                        df.to_pickle(f'runs/{tag}/metrics.pkl')
+                    else:
+                        self.progress.emit(i, t, pw.item(), abs(wass.item()))
+                    time_list.append(t)
+                    mses.append(pw.item())
+                    wass_list.append(abs(wass.item()))
+                    iter_list.append(i)
+                    df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
+                    df.to_pickle(f'runs/{tag}/metrics.pkl')
                     
                     converged_list.append(check_convergence(pw.item(), abs(wass.item())))
                     if np.sum(converged_list[-4:])==4:
+                        # check if convergence criteria been reached for 4 consecutive checks
                         print("Training Converged")
                         converged=True
+                    
             i+=1
-            if i%iters==0:
-                epoch +=1
+            if i==c.max_iters:
+                print(f"Max iterations reached: {i}")
             if self.quit_flag:
                 self.finished.emit()
-                print("TRAINING QUTTING")
+                print("Quitting training")
+        if t>c.timeout:
+            print(f"Timeout: {t:.2g}")   
         self.finished.emit()
         print("TRAINING FINISHED")        
     
