@@ -175,11 +175,11 @@ class RectWorker(QObject):
                     df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
                     df.to_pickle(f'runs/{tag}/metrics.pkl')
                     
-                    converged_list.append(check_convergence(pw.item(), abs(wass.item())))
-                    if np.sum(converged_list[-4:])==4:
-                        # check if convergence criteria been reached for 4 consecutive checks
-                        print("Training Converged")
-                        converged=True
+                    # converged = check_convergence(mses, wass_list)
+                    # if converged:
+                    #     # check if convergence criteria been reached
+                    #     print("Training Converged")
+                    #     # converged=True
                     
             i+=1
             if i==c.max_iters:
@@ -192,7 +192,7 @@ class RectWorker(QObject):
         self.finished.emit()
         print("TRAINING FINISHED")        
     
-    def generate(self):
+    def generate(self, save_path=None, border=False):
         print("Generating new inpainted image")
         device = torch.device(self.c.device_name if(
             torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
@@ -208,5 +208,9 @@ class RectWorker(QObject):
             idx = np.random.randint(self.c.batch_size)
             plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[idx].unsqueeze(0)
             img = netG(plot_noise).detach()
-            update_pixmap_rect(self.training_imgs, img, self.c)
+            f = update_pixmap_rect(self.training_imgs, img, self.c, border=border)
+            if save_path:
+                f.savefig(save_path, transparent=True)
+            return img
+
         

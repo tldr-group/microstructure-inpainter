@@ -21,6 +21,9 @@ class PolyWorker(QObject):
         self.overwrite = overwrite
         self.frames = frames
         self.quit_flag = False
+        self.opt_iters = 1000
+        self.save_inpaint = self.opt_iters//self.frames
+
 
     finished = pyqtSignal()
     progress = pyqtSignal(int, int, float, float)
@@ -48,8 +51,6 @@ class PolyWorker(QObject):
         real_seeds = self.real_seeds
         poly_rects = self.poly_rects 
         mask = self.mask
-        self.opt_iters = 1000
-        self.save_inpaint = self.opt_iters//self.frames
         overwrite = self.overwrite 
         offline=True
         ngpu = c.ngpu 
@@ -136,7 +137,7 @@ class PolyWorker(QObject):
                 
                 torch.save(netG.state_dict(), f'{path}/Gen.pt')
                 torch.save(netD.state_dict(), f'{path}/Disc.pt')
-                mse = self.inpaint(netG)
+                mse, _ = self.inpaint(netG, device=device)
 
                 if ('cuda' in str(device)) and (ngpu > 1):
                     end_overall.record()
@@ -151,7 +152,7 @@ class PolyWorker(QObject):
                 wass = wass / np.prod(real_data.shape)
 
                 if c.cli:
-                        print(f'Iter: {i}, Time: {t:.1f}, MSE: {mse:.2g}, Wass: {abs(wass.item()):.2g}')
+                    print(f'Iter: {i}, Time: {t:.1f}, MSE: {mse:.2g}, Wass: {abs(wass.item()):.2g}')
                 else:
                     self.progress.emit(i, t, mse, abs(wass.item()))
                 
@@ -162,10 +163,6 @@ class PolyWorker(QObject):
                 df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
                 df.to_pickle(f'runs/{tag}/metrics.pkl')
                 
-                converged_list.append(check_convergence(mse, abs(wass.item())))
-                if np.sum(converged_list[-4:])==4:
-                    print("Training Converged")
-                    converged=True
 
             i+=1
             if i==c.max_iters:
@@ -178,7 +175,7 @@ class PolyWorker(QObject):
         self.finished.emit()
         print("TRAINING FINISHED")
 
-    def inpaint(self, netG):
+    def inpaint(self, netG, save_path=None, border=False, device='cpu'):
         img = preprocess(self.c.data_path, self.c.image_type)[0]
         
         if self.c.image_type =='n-phase':
@@ -190,6 +187,7 @@ class PolyWorker(QObject):
         for rect in self.poly_rects:
             x0, y0, x1, y1 = (int(i) for i in rect)
             w, h = x1-x0, y1-y0
+            w_init, h_init = w,h
             x1 += 32 - w%32
             y1 += 32 - h%32
             w, h = x1-x0, y1-y0
@@ -200,7 +198,7 @@ class PolyWorker(QObject):
                 lx, ly = int(w/16), int(h/16)
             else:
                 lx, ly = int(w/32) + 2, int(h/32) + 2
-            inpaints, mse = self.optimise_noise(lx, ly, im_crop, mask_crop, netG)
+            inpaints, mse, raw = self.optimise_noise(lx, ly, im_crop, mask_crop, netG, device)
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
         for i, final_img in enumerate(final_imgs):
@@ -215,13 +213,21 @@ class PolyWorker(QObject):
                     plt.imsave(f'data/temp/temp{i}.png', final_img.numpy())
                 elif self.c.image_type=='grayscale':
                     plt.imsave(f'data/temp/temp{i}.png', np.concatenate([final_img for i in range(3)], -1))
+        if save_path:
+            fig, ax = plt.subplots()
+            final_img = final_imgs[-1]
+            final_img[self.mask==0] = final_img_fresh[self.mask==0]
+            final_img = (final_img.numpy()/final_img.max())
+            ax.imshow(np.stack([final_img for i in range(3)], -1))
+            ax.set_axis_off()
+            if border:
+                rect = Rectangle((x0,y0),w_init,h_init,linewidth=2,edgecolor='b',facecolor='none')
+                ax.add_patch(rect)
+            plt.savefig(save_path, transparent=True)
+        return mse, raw
 
-        return mse
-
-    def optimise_noise(self, lx, ly, img, mask, netG):
-        
-        device = torch.device("cuda:0" if(
-            torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")        
+    def optimise_noise(self, lx, ly, img, mask, netG, device):
+              
         target = img.to(device)
         for ch in range(self.c.n_phases):
             target[ch][mask==1] = -1
@@ -236,7 +242,7 @@ class PolyWorker(QObject):
             raw = netG(noise[0])
             loss = (raw - target)**2
             loss[target==-1] = 0
-            loss = loss.sum() / (target!=-1).sum()
+            loss = loss.sum() / ((target!=-1).sum()*loss.shape[1]*loss.shape[0])
             # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
             loss.backward()
             opt.step()
@@ -249,4 +255,20 @@ class PolyWorker(QObject):
                 else:
                     raw = raw[0].permute(1,2,0)[16:-16, 16:-16].detach().cpu()
                 inpaints.append(raw)
-        return inpaints, loss.item()
+        return inpaints, loss.item(), raw
+    
+    def generate(self, save_path=None, border=False):
+        print("Generating new inpainted image")
+        device = torch.device(self.c.device_name if(
+            torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
+        netG = self.netG().to(device)
+        netD = self.netD().to(device)
+        if ('cuda' in str(device)) and (self.c.ngpu > 1):
+            netD = (nn.DataParallel(netD, list(range(self.c.ngpu)))).to(device)
+            netG = nn.DataParallel(netG, list(range(self.c.ngpu))).to(device)
+        netG.load_state_dict(torch.load(f"{self.c.path}/Gen.pt"))
+        netD.load_state_dict(torch.load(f"{self.c.path}/Disc.pt"))
+
+        mse, raw = self.inpaint(netG, save_path=save_path, border=border, device=device)
+
+        return raw

@@ -55,11 +55,7 @@ def main(mode, tag, coords, path, image_type, shape):
         if mode == 'train':
             worker.train()
         elif mode == 'generate':
-            print(nc)
             worker.generate()
-        elif mode == 'evaluate':
-            util.plot_mse(tag)
-            util.plot_wass(tag)
         else:
             raise ValueError("Mode not recognised")
     elif shape == 'poly':
@@ -69,8 +65,11 @@ def main(mode, tag, coords, path, image_type, shape):
         c.image_type = image_type
         c.cli = True
         x1, x2, y1, y2 = coords
-        img = plt.imread(c.data_path)[...,0]
-        h, w = img.shape
+        img = plt.imread(c.data_path)
+        if image_type == 'n-phase':
+            h, w = img.shape
+        else:
+            h, w, _ = img.shape
         new_polys = [[(x1,y1), (x1, y2), (x2,y2), (x2, y1)]]
         x, y = np.meshgrid(np.arange(w), np.arange(h)) # make a canvas with coordinates
         x, y = x.flatten(), y.flatten()
@@ -89,8 +88,11 @@ def main(mode, tag, coords, path, image_type, shape):
                 seeds_mask += np.roll(np.roll(mask, -x, 0), -y, 1)
         seeds_mask[seeds_mask>1]=1
         real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
-        overwrite = True
-        util.initialise_folders(tag, overwrite)
+        if mode=='train':
+            overwrite = util.check_existence(tag)
+            util.initialise_folders(tag, overwrite)
+        else:
+            overwrite = False
         if c.image_type == 'n-phase':
             c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
             c.conv_resize=True

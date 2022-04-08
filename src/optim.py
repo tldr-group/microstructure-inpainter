@@ -18,7 +18,7 @@ netD, netG = networks.make_nets(c, False)
 netG = netG()
 if torch.cuda.device_count() > 1 and c.ngpu > 1:
     print("Using", torch.cuda.device_count(), "GPUs!")
-device = torch.device("cuda:0" if(
+device = torch.device(c.device_name if(
         torch.cuda.is_available() and ngpu > 0) else "cpu")
 if (ngpu > 1):
     netG = nn.DataParallel(netG, list(range(ngpu))).to(device)

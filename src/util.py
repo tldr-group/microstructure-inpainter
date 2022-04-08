@@ -9,6 +9,7 @@ import subprocess
 import shutil
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
+from matplotlib.patches import Rectangle
 
 # check for existing models and folders
 def check_existence(tag):
@@ -210,7 +211,7 @@ def update_discriminator(c):
             dk.append(4)
             ds.append(2)
             dp.append(1)
-            df.append(int(np.min([2**(layer+6), 512])))
+            df.append(int(np.min([2**(layer+8), 2048])))
             layer += 1
         elif out_check<1:
             dp[layer] = int(round((2+dk[layer]-out)/2))
@@ -223,19 +224,25 @@ def update_discriminator(c):
     c.dp = dp
     return c
 
-def update_pixmap_rect(raw, img, c):
+def update_pixmap_rect(raw, img, c, border=False):
     updated_pixmap = raw.clone().unsqueeze(0)
     x1, x2, y1, y2 = c.mask_coords
     lx, ly = c.mask_size
     x_1, x_2, y_1, y_2 = (img.shape[2]-lx)//2,(img.shape[2]+lx)//2, (img.shape[3]-ly)//2, (img.shape[3]+ly)//2
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     updated_pixmap = post_process(updated_pixmap, c).permute(0,2,3,1)
+    fig, ax = plt.subplots()
     if c.image_type=='grayscale':
-        plt.imsave('data/temp/temp.png', updated_pixmap[0,...,0], cmap='gray')
-        return updated_pixmap[0,...,0]
+        ax.imshow(updated_pixmap[0,...,0], cmap='gray')
     else:
-        plt.imsave('data/temp/temp.png', updated_pixmap[0].numpy())
-        return updated_pixmap[0]
+        ax.imshow(updated_pixmap[0].numpy())
+    ax.set_axis_off()
+    if border:
+        rect = Rectangle((x1,y1),lx,ly,linewidth=2,edgecolor='b',facecolor='none')
+        ax.add_patch(rect)
+    plt.savefig('data/temp/temp.png', transparent=True)
+    plt.close()
+    return fig
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
@@ -327,8 +334,8 @@ def post_process(img, c):
     img = img.detach().cpu()
     if c.image_type=='n-phase':
         phases = np.arange(c.n_phases)
-        color = iter(cm.rainbow(np.linspace(0, 1, c.n_phases)))
-        # color = iter([[0,0,0],[0.5,0.5,0.5], [1,1,1]])
+        # color = iter(cm.rainbow(np.linspace(0, 1, c.n_phases)))
+        color = iter([[0,0,0],[0.5,0.5,0.5], [1,1,1]])
         img = torch.argmax(img, dim=1)
         if len(phases) > 10:
             raise AssertionError('Image not one hot encoded.')
@@ -355,29 +362,3 @@ def make_noise(noise, seed_x, seed_y, c, device):
     rand = torch.randn_like(noise).to(device)*mask
     noise = noise*(mask==0)+rand
     return noise
-
-def check_convergence(mse, wass, mse_thresh=1e-4, wass_thresh=1e-5):
-    if mse<mse_thresh and wass<wass_thresh:
-        return True
-    else:
-        return False
-
-# Evaluation metrics
-
-def plot_mse(tag):
-    df = pd.read_pickle(f'runs/{tag}/metrics.pkl')
-    plt.figure()
-    plt.plot(df['time'], df['MSE'])
-    plt.xlabel('Time')
-    plt.ylabel("MSE")
-    plt.savefig(f'runs/{tag}/mse.png')
-    plt.close()
-
-def plot_wass(tag):
-    df = pd.read_pickle(f'runs/{tag}/metrics.pkl')
-    plt.figure()
-    plt.plot(df['time'], df['wass'])
-    plt.xlabel('Time')
-    plt.ylabel("Wass distance")
-    plt.savefig(f'runs/{tag}/wass.png')
-    plt.close()

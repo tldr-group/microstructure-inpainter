@@ -114,7 +114,6 @@ def make_nets_poly(config, training=True):
         config.load()
 
     dk, ds, df, dp, gk, gs, gf, gp = config.get_net_params()
-    print(config.n_phases)
     df[0] = config.n_phases
     gf[-1] = config.n_phases
     # Make nets
