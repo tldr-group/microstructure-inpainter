@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import pickle
 
 
 def make_nets_rect(config, training=True):
@@ -23,77 +22,60 @@ def make_nets_rect(config, training=True):
     dk, ds, df, dp, gk, gs, gf, gp = config.get_net_params()
 
     # Make nets
-    if config.net_type == 'gan':
-        class Generator(nn.Module):
-            def __init__(self):
-                super(Generator, self).__init__()
-                self.convs = nn.ModuleList()
-                self.bns = nn.ModuleList()
-                for lay, (k, s, p) in enumerate(zip(gk, gs, gp)):
+    class Generator(nn.Module):
+        def __init__(self):
+            super(Generator, self).__init__()
+            self.convs = nn.ModuleList()
+            self.bns = nn.ModuleList()
+            self.no_layers = len(gk)
+            for lay, (k, s, p) in enumerate(zip(gk, gs, gp)):
+                if lay<self.no_layers-2:
                     self.convs.append(nn.ConvTranspose2d(
-                        gf[lay], gf[lay+1], k, s, p, bias=False))
-                    self.bns.append(nn.BatchNorm2d(gf[lay+1]))
-
-            def forward(self, x):
-                # x = torch.cat((x, mask[:,-1].reshape(x.shape)), dim=1)
-                for conv, bn in zip(self.convs[:-1], self.bns[:-1]):
-                    x = F.relu_(bn(conv(x)))
-                if config.image_type == 'n-phase':
-                    out = torch.softmax(self.convs[-1](x), dim=1)
+                    gf[lay], gf[lay+1], k, s, p, bias=False))
                 else:
-                    out = torch.sigmoid(self.convs[-1](x))  # bs x 1 x 1
-                # out = torch.where((mask[:,-1]==0).unsqueeze(1).repeat(1,3,1,1,1), mask[:,0:3], out)
-                return out  # bs x n x imsize x imsize x imsize
-
-        class Discriminator(nn.Module):
-            def __init__(self):
-                super(Discriminator, self).__init__()
-                self.convs = nn.ModuleList()
-                for lay, (k, s, p) in enumerate(zip(dk, ds, dp)):
-                    self.convs.append(
-                        nn.Conv2d(df[lay], df[lay + 1], k, s, p, bias=False))
-
-            def forward(self, x):
-                for conv in self.convs[:-1]:
-                    x = F.relu_(conv(x))
-                return x
-    else:
-        class Generator(nn.Module):
-            def __init__(self):
-                super(Generator, self).__init__()
-                self.convs = nn.ModuleList()
-                self.bns = nn.ModuleList()
-                self.up = nn.Upsample(scale_factor=2)
-
-                for lay, (k, s, p) in enumerate(zip(gk, gs, gp)):
                     self.convs.append(nn.Conv2d(
-                        gf[lay], gf[lay+1], 3, 1, 1, bias=False, padding_mode='reflect'))
-                    self.bns.append(nn.BatchNorm2d(gf[lay+1]))
+                        gf[lay], gf[lay+1], k, s, p, bias=False, padding_mode='reflect'))
+                self.bns.append(nn.BatchNorm2d(gf[lay+1]))
+                
+        def batch_norm(self, x):
+            # TODO - dont just //3 but use size of discriminated region as batch norm area
+            _, _, x_dim, y_dim = x.shape
+            x_dim = x_dim//3
+            x = (x - torch.mean(x[:,:,x_dim:-x_dim,x_dim:-x_dim])) / torch.std(x[:,:,x_dim:-x_dim,x_dim:-x_dim])
+            return x
 
-            def forward(self, x):
-                # x = torch.cat((x, mask[:,-1].reshape(x.shape)), dim=1)
-                for conv, bn in zip(self.convs[:-1], self.bns[:-1]):
-                    x = F.relu_(bn(self.up(conv(x))))
-                if config.image_type == 'n-phase':
-                    out = torch.softmax(self.convs[-1](x), dim=1)
+        def forward(self, x):
+            count = 0
+            for conv, bn in zip(self.convs[:-1], self.bns[:-1]):
+                if count<self.no_layers-2:
+                    x = conv(x)
+                    x = self.batch_norm(x)
+                    x = F.relu_(x)
                 else:
-                    out = torch.sigmoid(self.convs[-1](x))
-                # out = torch.where((mask[:,-1]==0).unsqueeze(1).repeat(1,3,1,1,1), mask[:,0:3], out)
-                return out  # bs x n x imsize x imsize x imsize
+                    x = conv(x)
+                    x = F.interpolate(x, x.shape[-1]*2+2)
+                    x = self.batch_norm(x)
+                    x = F.relu_(x)
+                count+=1
+            if config.image_type == 'n-phase':
+                out = torch.softmax(self.convs[-1](x), dim=1)
+            else:
+                out = torch.sigmoid(self.convs[-1](x))
+            return out  # bs x n x imsize x imsize x imsize
 
-        class Discriminator(nn.Module):
-            def __init__(self):
-                super(Discriminator, self).__init__()
-                self.convs = nn.ModuleList()
-                for lay, (k, s, p) in enumerate(zip(dk, ds, dp)):
-                    self.convs.append(
-                        nn.Conv2d(df[lay], df[lay + 1], k, s, p, bias=False))
+    class Discriminator(nn.Module):
+        def __init__(self):
+            super(Discriminator, self).__init__()
+            self.convs = nn.ModuleList()
+            for lay, (k, s, p) in enumerate(zip(dk, ds, dp)):
+                self.convs.append(
+                    nn.Conv2d(df[lay], df[lay + 1], k, s, p, bias=False))
 
-            def forward(self, x):
-                for conv in self.convs[:-1]:
-                    x = F.relu_(conv(x))
-                x = self.convs[-1](x)  # bs x 1 x 1
-                return x
+        def forward(self, x):
+            for conv in self.convs[:-1]:
+                x = F.relu_(conv(x))
+            x = self.convs[-1](x)  # bs x 1 x 1
+            return x
 
     return Discriminator, Generator
 
