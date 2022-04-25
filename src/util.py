@@ -212,7 +212,7 @@ def update_discriminator(c):
     ds = [2]
     df = [c.n_phases]
     while out != 1:
-        out_check = int(round((out+2*dp[layer]-dk[layer])/ds[layer]+1))
+        out_check = int(np.floor((out+2*dp[layer]-dk[layer])/ds[layer]+1))
         if out_check>1:
             out = out_check
             dk.append(4)

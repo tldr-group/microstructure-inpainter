@@ -53,7 +53,7 @@ def make_nets_rect(config, training=True):
                     x = F.relu_(x)
                 else:
                     x = conv(x)
-                    x = F.interpolate(x, x.shape[-1]*2+2)
+                    x = F.interpolate(x, [x.shape[-2]*2+2, x.shape[-1]*2+2])
                     x = self.batch_norm(x)
                     x = F.relu_(x)
                 count+=1
