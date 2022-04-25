@@ -26,6 +26,7 @@ def main(mode, tag, coords, path, image_type, shape):
 
         
     if shape=='rect':
+        # load config and command line arguments
         c = Config(tag)
         c.data_path = path
         c.mask_coords = tuple(coords)
@@ -36,6 +37,7 @@ def main(mode, tag, coords, path, image_type, shape):
             util.initialise_folders(tag, overwrite)
         else:
             overwrite = False
+        # Pre-process the data and adjust the nets
         training_imgs, nc = util.preprocess(c.data_path, c.image_type)
         mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
         c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
@@ -46,18 +48,25 @@ def main(mode, tag, coords, path, image_type, shape):
             c.n_phases = 3
         else:
             c.n_phases = 1
-        c = util.update_discriminator(c)
-        # iters per epoch = pixels in training data / pixels seen by D each iter
-        c.update_params()
-        c.save()
+        
+        if mode=='train':
+            c = util.update_discriminator(c)
+            c.update_params()
+            c.save()
+        else:
+            c.load()
+
+        # Build the nets and initialise worker
         netD, netG = networks.make_nets_rect(c, overwrite)
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
         if mode == 'train':
             worker.train()
         elif mode == 'generate':
-            worker.generate()
+            sp = 'out.png'
+            worker.generate(save_path = sp)
         else:
             raise ValueError("Mode not recognised")
+
     elif shape == 'poly':
         c = ConfigPoly(tag)
         c.data_path = path
@@ -109,6 +118,8 @@ def main(mode, tag, coords, path, image_type, shape):
 
         if mode == 'train':
             worker.train()
+        elif mode == 'generate':
+            worker.generate()
     else:
         raise ValueError("Shape not recognised")
 

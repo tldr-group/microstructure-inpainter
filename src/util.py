@@ -133,9 +133,7 @@ def preprocess(data_path, imtype, load=True):
             phases = np.unique(img)
             if len(phases) > 10:
                 raise AssertionError('Image not one hot encoded.')
-            # x, y, z = img.shape
             x, y = img.shape
-            # img_oh = torch.zeros(len(phases), x, y, z)
             img_oh = torch.zeros(len(phases), x, y)
             for i, ph in enumerate(phases):
                 img_oh[i][img == ph] = 1
@@ -144,18 +142,36 @@ def preprocess(data_path, imtype, load=True):
             img = np.expand_dims(img, 0)
             img = torch.tensor(img)
             return img, len(phases)
-        # x, y, z = img.shape
 
 
 def calculate_size_from_seed(seed, c):
     imsize = seed
+    count = 0
+    no_layers = len(c.gk)
     for (k, s, p) in zip(c.gk, c.gs, c.gp):
-        imsize = (imsize-1)*s-2*p+k
+        if count<no_layers-2:
+            imsize = (imsize-1)*s-2*p+k
+        elif count==no_layers-2:
+            imsize = ((imsize-k+2*p)/s+1).to(int)
+            imsize = imsize*2+2
+        else:
+            imsize = ((imsize-k+2*p)/s+1).to(int)
+        count +=1
     return imsize
 
 def calculate_seed_from_size(imsize, c):
+    count = 0
+    no_layers = len(c.gk)
     for (k, s, p) in zip(c.gk, c.gs, c.gp):
-        imsize = ((imsize-k+2*p)/s+1).to(int)
+        
+        if count<no_layers-2:
+            imsize = ((imsize-k+2*p)/s+1).to(int)
+        elif count==no_layers-2:
+            imsize = (imsize-1)*s-2*p+k
+            imsize = ((imsize-2)/2).to(int)
+        else:
+            imsize = (imsize-1)*s-2*p+k
+        count +=1
     return imsize
 
 def make_mask(training_imgs, c):
@@ -163,14 +179,14 @@ def make_mask(training_imgs, c):
     ydiff, xdiff = y2-y1, x2-x1
     seed = calculate_seed_from_size(torch.tensor([xdiff, ydiff]).to(int), c)
     img_seed = seed+2
-    img_size = calculate_size_from_seed(img_seed, c)
+    G_out_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
     D_size_dim = int(torch.div(mask_size.min(),32, rounding_mode='floor'))*16
     D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
 
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
-    x1_bound, x2_bound, y1_bound, y2_bound = xmid-img_size[0].item()//2, xmid+img_size[0].item()//2, ymid-img_size[1].item()//2, ymid+img_size[1].item()//2
+    x1_bound, x2_bound, y1_bound, y2_bound = xmid-G_out_size[0].item()//2, xmid+G_out_size[0].item()//2, ymid-G_out_size[1].item()//2, ymid+G_out_size[1].item()//2
     unmasked = training_imgs[:,x1_bound:x2_bound, y1_bound:y2_bound].clone()
     training_imgs[:, x1:x2, y1:y2] = 0
     mask = training_imgs[:,x1_bound:x2_bound, y1_bound:y2_bound]
@@ -181,21 +197,12 @@ def make_mask(training_imgs, c):
 
     # save coords to c
     c.mask_coords = (x1,x2,y1,y2)
+    c.G_out_size = (G_out_size[0].item(), G_out_size[1].item())
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
     c.D_seed_x = D_seed[0].item()
     c.D_seed_y = D_seed[1].item()
     
-    # plot regions where discriminated
-    # plt.figure()
-    # plotter = mask.permute(1,2,0).numpy().copy()
-    # plotter[(img_size[0].item()-D_size_dim)//2:(img_size[0].item()+D_size_dim)//2,(img_size[1].item()-D_size_dim)//2:(img_size[1].item()+D_size_dim)//2,:] = 0
-    # plt.imshow(plotter)
-    # plt.savefig('data/mask_plot.png')
-    # plt.close()
-
-    # plt.imsave('data/mask.png',mask.permute(1,2,0).numpy())
-    # plt.imsave('data/unmasked.png',unmasked.permute(1,2,0).numpy())
-    return mask, unmasked, D_size_dim, img_size, img_seed, c
+    return mask, unmasked, D_size_dim, G_out_size, img_seed, c
 
 def update_discriminator(c):
     out = c.dl
@@ -211,7 +218,7 @@ def update_discriminator(c):
             dk.append(4)
             ds.append(2)
             dp.append(1)
-            df.append(int(np.min([2**(layer+8), 2048])))
+            df.append(int(np.min([2**(layer+6), 512])))
             layer += 1
         elif out_check<1:
             dp[layer] = int(round((2+dk[layer]-out)/2))
@@ -224,25 +231,31 @@ def update_discriminator(c):
     c.dp = dp
     return c
 
-def update_pixmap_rect(raw, img, c, border=False):
+def update_pixmap_rect(raw, img, c, save_path=None, border=False):
     updated_pixmap = raw.clone().unsqueeze(0)
     x1, x2, y1, y2 = c.mask_coords
     lx, ly = c.mask_size
     x_1, x_2, y_1, y_2 = (img.shape[2]-lx)//2,(img.shape[2]+lx)//2, (img.shape[3]-ly)//2, (img.shape[3]+ly)//2
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     updated_pixmap = post_process(updated_pixmap, c).permute(0,2,3,1)
-    fig, ax = plt.subplots()
     if c.image_type=='grayscale':
-        ax.imshow(updated_pixmap[0,...,0], cmap='gray')
+        pm = updated_pixmap[0,...,0]
     else:
-        ax.imshow(updated_pixmap[0].numpy())
-    ax.set_axis_off()
-    if border:
-        rect = Rectangle((x1,y1),lx,ly,linewidth=2,edgecolor='b',facecolor='none')
-        ax.add_patch(rect)
-    plt.savefig('data/temp/temp.png', transparent=True)
-    plt.close()
-    return fig
+        pm = updated_pixmap[0].numpy()
+    
+    if save_path:
+        fig, ax = plt.subplots()
+        ax.imshow(pm)
+        if border:
+            rect = Rectangle((x1,y1),lx,ly,linewidth=2,edgecolor='b',facecolor='none')
+            ax.add_patch(rect)
+        ax.set_axis_off()
+        plt.savefig('data/temp/temp.png', transparent=True, pad_inches=0)
+        plt.close()
+        return fig
+    else:
+        plt.imsave('data/temp/temp.png', pm)
+    
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
     """[summary]
@@ -351,14 +364,31 @@ def post_process(img, c):
         out = img
     return out
 
-def crop(fake_data, l):
+def crop(fake_data, l, prob=0):
     w = fake_data.shape[2]
-    return fake_data[:,:,w//2-l//2:w//2+l//2,w//2-l//2:w//2+l//2]
+    h = fake_data.shape[3]
+    x1,x2 = (w-l)//2,(w+l)//2
+    y1,y2 = (h-l)//2,(h+l)//2
+    return fake_data[:,:,x1:x2, y1:y2]
 
-def make_noise(noise, seed_x, seed_y, c, device):
-    # noise = torch.ones(bs, nz, seed_x, seed_y, device=device)
+def init_noise(batch_size, nz, c, device):
+    noise = torch.randn(1, nz, c.seed_x, c.seed_y, device=device)
+    noise = torch.tile(noise, (batch_size, 1, 1 ,1))
+    noise.requires_grad = True
+    return noise
+
+def make_noise(noise, seed_x, seed_y, c, device, mask_noise=True):
     mask = torch.zeros_like(noise).to(device)
     mask[:,:, (seed_x-c.D_seed_x)//2:(seed_x+c.D_seed_x)//2, (seed_y-c.D_seed_y)//2:(seed_y+c.D_seed_y)//2] = 1
-    rand = torch.randn_like(noise).to(device)*mask
-    noise = noise*(mask==0)+rand
+    # mask[:,:, 1:-1, 1:-1] = 1
+    if mask_noise:
+        rand = torch.randn_like(noise).to(device)*mask
+        noise = noise*(mask==0)+rand
+    else:
+        noise = torch.randn_like(noise).to(device)
+    return noise
+
+def set_grads_noise(noise):
+    # remove buffer region from being updated
+    noise.grad[:,:,1:-1,1:-1] = 0
     return noise
