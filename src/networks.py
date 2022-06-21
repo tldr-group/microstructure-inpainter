@@ -40,8 +40,10 @@ def make_nets_rect(config, training=True):
         def batch_norm(self, x):
             # TODO - dont just //3 but use size of discriminated region as batch norm area
             _, _, x_dim, y_dim = x.shape
-            x_dim = x_dim//3
-            x = (x - torch.mean(x[:,:,x_dim:-x_dim,x_dim:-x_dim])) / torch.std(x[:,:,x_dim:-x_dim,x_dim:-x_dim])
+            x_dim = x_dim//2-4
+            y_dim = y_dim//2-4
+            # print(x_dim, y_dim, x[:,:,x_dim:-x_dim,y_dim:-y_dim].shape)
+            x = (x - torch.mean(x[:,:,x_dim:-x_dim,y_dim:-y_dim])) / torch.std(x[:,:,x_dim:-x_dim,y_dim:-y_dim])
             return x
 
         def forward(self, x):
@@ -74,6 +76,7 @@ def make_nets_rect(config, training=True):
         def forward(self, x):
             for conv in self.convs[:-1]:
                 x = F.relu_(conv(x))
+                
             x = self.convs[-1](x)  # bs x 1 x 1
             return x
 

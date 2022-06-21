@@ -7,7 +7,9 @@ class Config():
     def __init__(self, tag):
         self.tag = tag
         self.cli = False
+        self.wandb = True
         self.path = f'runs/{self.tag}'
+        self.cm = 'gray'
         self.data_path = ''
         self.mask_coords = []
         self.net_type = 'conv-resize'
@@ -19,18 +21,18 @@ class Config():
         self.beta1 = 0.9
         self.beta2 = 0.999
         self.max_iters = 10e12
-        self.timeout = 60*60*2
+        self.timeout = 60*60*12
         self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10
-        self.critic_iters = 5
+        self.critic_iters = 10
         self.pw_coeff = 1e3
         self.lz = 7
         self.lf = 7
         self.dl = 32
         self.ngpu = 1
         if self.ngpu > 0:
-            self.device_name = "cuda:0"
+            self.device_name = "cuda:1"
         else:
             self.device_name = 'cpu'
         self.conv_resize = True

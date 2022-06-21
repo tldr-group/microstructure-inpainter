@@ -31,8 +31,8 @@ class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/nmc.png")
-        self.img_path = "data/nmc.png"
+        self.image = QPixmap("data/example_inpainting.png")
+        self.img_path = "data/example_inpainting.png"
         self.shape = 'rect'
         self.image_type = 'n-phase'
         self.poly = []

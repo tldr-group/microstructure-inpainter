@@ -76,7 +76,10 @@ def main(mode, tag, coords, path, image_type, shape):
         x1, x2, y1, y2 = coords
         img = plt.imread(c.data_path)
         if image_type == 'n-phase':
-            h, w = img.shape
+            try:
+                h, w = img.shape
+            except:
+                h, w, _ = img.shape
         else:
             h, w, _ = img.shape
         new_polys = [[(x1,y1), (x1, y2), (x2,y2), (x2, y1)]]

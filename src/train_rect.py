@@ -19,6 +19,8 @@ class RectWorker(QObject):
         self.mask = mask
         self.unmasked = unmasked
         self.quit_flag = False
+        # self.opt_whilst_train = not c.cli
+        self.opt_whilst_train = True
         
     finished = pyqtSignal()
     progress = pyqtSignal(int, int, float, float)
@@ -58,15 +60,18 @@ class RectWorker(QObject):
         print(device, " will be used.\n")
         cudnn.benchmark = True
 
+        print(f"Data shape: {training_imgs.shape}")
+
         # Get train params
         l, dl, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
+
+        pw_iters = 0
 
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
         noise = torch.nn.Parameter(init_noise(batch_size, nz, c, device))
         optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
-
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
@@ -79,6 +84,8 @@ class RectWorker(QObject):
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
             noise = torch.load(f'{c.path}/noise.pt')
+        if c.wandb:
+            wandb_init(tag, offline=False)
         i=0
         t=0
         mses = []
@@ -122,32 +129,37 @@ class RectWorker(QObject):
                 netG.zero_grad()
                 optNoise.zero_grad()
                 noise_G = make_noise(noise, c.seed_x, c.seed_y, c, device, mask_noise=mask_noise)
+                
                 # Forward pass through G with noise vector
                 fake_data = netG(noise_G)
+                # output = -netD(crop(fake_data, dl, shift=True, prob=0.05)).mean()
                 output = -netD(crop(fake_data, dl)).mean()
-                pw = pixel_wise_loss(fake_data, mask, device=device)
-                output += pw*c.pw_coeff
+                if i == pw_iters:
+                    print("Turning on pixel wise loss")
+                if i >= pw_iters:
+                    pw = pixel_wise_loss(fake_data, mask, unmasked, device=device)
+                    output += pw.sum()*c.pw_coeff
+                else:
+                    pw = torch.Tensor([0])
                 # # Calculate loss for G and backprop
                 output.backward(retain_graph=True)
                 optG.step()
                 optNoise.step()
+                
                 with torch.no_grad():
                     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
                     noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
 
-
+                
             # Every 50 iters log images and useful metrics
-            if i % 50 == 0:
+            if i % 100 == 0:
                 netG.eval()
                 with torch.no_grad():
                     torch.save(netG.state_dict(), f'{path}/Gen.pt')
                     torch.save(netD.state_dict(), f'{path}/Disc.pt')
                     torch.save(noise, f'{path}/noise.pt')
 
-                    plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device, mask_noise=mask_noise)[0].unsqueeze(0)
-                    img = netG(plot_noise).detach()
-
-                    pixmap = update_pixmap_rect(training_imgs, img, c)
+                    
                     
                     if ('cuda' in str(device)) and (ngpu > 1):
                         end_overall.record()
@@ -156,20 +168,32 @@ class RectWorker(QObject):
                     else:
                         end_overall = time.time()
                         t = end_overall-start_overall
+                    if self.opt_whilst_train:
+                        plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device, mask_noise=mask_noise)[0].unsqueeze(0)
+                        img = netG(plot_noise).detach()
+                        # plt.imsave('test.png', img.permute(0,2,3,1).detach().cpu()[0,...,0].numpy())
+                        pixmap = update_pixmap_rect(training_imgs, img, c)
                     
-                    # Normalise wass for comparison
-                    wass = wass / np.prod(real_data.shape)
+                        # Normalise wass for comparison
+                        # wass = wass / np.prod(real_data.shape)
 
-                    if c.cli:
-                        print(f'Iter: {i}, Time: {t:.1f}, MSE: {pw.item():.2g}, Wass: {abs(wass.item()):.2g}')
+                        if c.cli:
+                            print(f'Iter: {i}, Time: {t:.1f}, MSE: {pw.sum().item():.2g}, Wass: {abs(wass.item()):.2g}')
+                            if c.wandb:
+                                wandb.log({'mse':pw.sum().item(), 'wass':wass.item(), 'gp': gradient_penalty.item(),
+                                'mse image':wandb.Image(pw[0,0]/pw[0,0].max()), 'raw out': wandb.Image(img[0,0].cpu()),
+                                'inpaint out': wandb.Image(pixmap)}, step=i)
+                        else:
+                            self.progress.emit(i, t, pw.item(), abs(wass.item()))
+                        # save metrics to pkl
+                        # time_list.append(t)
+                        # mses.append(pw.sum().item())
+                        # wass_list.append(abs(wass.item()))
+                        # iter_list.append(i)
+                        # df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
+                        # df.to_pickle(f'runs/{tag}/metrics.pkl')
                     else:
-                        self.progress.emit(i, t, pw.item(), abs(wass.item()))
-                    time_list.append(t)
-                    mses.append(pw.item())
-                    wass_list.append(abs(wass.item()))
-                    iter_list.append(i)
-                    df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
-                    df.to_pickle(f'runs/{tag}/metrics.pkl')
+                        print(f"Iter: {i}, Time {t:.1f}")
                     
             i+=1
             if i==c.max_iters:
@@ -199,11 +223,16 @@ class RectWorker(QObject):
             idx = np.random.randint(self.c.batch_size)
             plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[idx].unsqueeze(0)
             img = netG(plot_noise).detach()
-            plt.imsave('raw.png', img[0].permute(1,2,0).cpu().numpy())
+            plt.imsave('test.png', img.permute(0,2,3,1).detach().cpu()[0,...,0].numpy())
             f = update_pixmap_rect(self.training_imgs, img, self.c, save_path=save_path, border=border)
             if save_path:
-                f.savefig(save_path, transparent=True)
-            netG.train()
+                axs = f.axes
+                f.savefig(f'{save_path}_border.png', transparent=True)
+                for ax in axs:
+                    ax.patches = []
+                f.savefig(f'{save_path}.png', transparent=True)
+        
             return img
+        netG.train()
 
         

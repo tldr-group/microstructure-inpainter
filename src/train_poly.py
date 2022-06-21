@@ -23,6 +23,7 @@ class PolyWorker(QObject):
         self.quit_flag = False
         self.opt_iters = 1000
         self.save_inpaint = self.opt_iters//self.frames
+        self.opt_whilst_train = not c.cli
 
 
     finished = pyqtSignal()
@@ -81,7 +82,6 @@ class PolyWorker(QObject):
             netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
 
-
         i=0
         t = 0
         mses = []
@@ -137,8 +137,6 @@ class PolyWorker(QObject):
                 
                 torch.save(netG.state_dict(), f'{path}/Gen.pt')
                 torch.save(netD.state_dict(), f'{path}/Disc.pt')
-                mse, _ = self.inpaint(netG, device=device)
-
                 if ('cuda' in str(device)) and (ngpu > 1):
                     end_overall.record()
                     torch.cuda.synchronize()
@@ -146,22 +144,26 @@ class PolyWorker(QObject):
                 else:
                     end_overall = time.time()
                     t = end_overall-start_overall
+                if self.opt_whilst_train:
+                    mse, _ = self.inpaint(netG, device=device, opt_iters=self.opt_iters)
+                    # Normalise wass for comparison (this needs thinking about more!)
+                    # TODO
+                    wass = wass / np.prod(real_data.shape)
 
-                # Normalise wass for comparison (this needs thinking about more!)
-                # TODO
-                wass = wass / np.prod(real_data.shape)
-
-                if c.cli:
-                    print(f'Iter: {i}, Time: {t:.1f}, MSE: {mse:.2g}, Wass: {abs(wass.item()):.2g}')
+                    if c.cli:
+                        print(f'Iter: {i}, Time: {t:.1f}, MSE: {mse:.2g}, Wass: {abs(wass.item()):.2g}')
+                    else:
+                        self.progress.emit(i, t, mse, abs(wass.item()))
+                    
+                    time_list.append(t)
+                    mses.append(mse)
+                    wass_list.append(abs(wass.item()))
+                    iter_list.append(i)
+                    df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
+                    df.to_pickle(f'runs/{tag}/metrics.pkl')
                 else:
-                    self.progress.emit(i, t, mse, abs(wass.item()))
-                
-                time_list.append(t)
-                mses.append(mse)
-                wass_list.append(abs(wass.item()))
-                iter_list.append(i)
-                df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
-                df.to_pickle(f'runs/{tag}/metrics.pkl')
+                    print(f'Iter: {i}, Time: {t:.1f}')
+
                 
 
             i+=1
@@ -175,7 +177,7 @@ class PolyWorker(QObject):
         self.finished.emit()
         print("TRAINING FINISHED")
 
-    def inpaint(self, netG, save_path=None, border=False, device='cpu'):
+    def inpaint(self, netG, save_path=None, border=False, device='cpu', opt_iters=1000):
         img = preprocess(self.c.data_path, self.c.image_type)[0]
         
         if self.c.image_type =='n-phase':
@@ -198,7 +200,7 @@ class PolyWorker(QObject):
                 lx, ly = int(w/16), int(h/16)
             else:
                 lx, ly = int(w/32) + 2, int(h/32) + 2
-            inpaints, mse, raw = self.optimise_noise(lx, ly, im_crop, mask_crop, netG, device)
+            inpaints, mse, raw = self.optimise_noise(lx, ly, im_crop, mask_crop, netG, device, opt_iters=opt_iters)
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
         for i, final_img in enumerate(final_imgs):
@@ -218,15 +220,40 @@ class PolyWorker(QObject):
             final_img = final_imgs[-1]
             final_img[self.mask==0] = final_img_fresh[self.mask==0]
             final_img = (final_img.numpy()/final_img.max())
-            ax.imshow(np.stack([final_img for i in range(3)], -1))
+            if self.c.image_type == 'n-phase':
+                # plot in rainbow colours for n_phase
+                x,y = final_img.shape
+                phases = torch.unique(final_img)
+                color = iter(cm.get_cmap(self.c.cm)(np.linspace(0, 1, self.c.n_phases)))
+                out = torch.zeros((3, x, y))
+                for i, ph in enumerate(phases):
+                    col = next(color)
+                    col = torch.tile(torch.Tensor(col[0:3]).unsqueeze(1).unsqueeze(1), (x,y))
+                    out = torch.where((final_img == ph), col, out)
+                out = out.permute(1,2,0)
+                ax.imshow(out.numpy())
+                rect_col = '#CC2825'
+                
+            elif self.c.image_type=='grayscale':
+                out = final_img
+                rect_col = '#CC2825'
+                ax.imshow(out.numpy(), cmap='gray')
+            else:
+                out = final_img
+                ax.imshow(out.numpy())
+                rect_col = '#CC2825'
+            
             ax.set_axis_off()
             if border:
-                rect = Rectangle((x0,y0),w_init,h_init,linewidth=2,edgecolor='b',facecolor='none')
+                rect = Rectangle((y0,x0),h_init, w_init,linewidth=1, ls='--', edgecolor=rect_col,facecolor='none')
                 ax.add_patch(rect)
-            plt.savefig(save_path, transparent=True)
+            plt.tight_layout()
+            plt.savefig(f'{save_path}_border.png', transparent=True)
+            ax.patches=[]
+            plt.savefig(f'{save_path}.png', transparent=True)
         return mse, raw
 
-    def optimise_noise(self, lx, ly, img, mask, netG, device):
+    def optimise_noise(self, lx, ly, img, mask, netG, device, opt_iters=1000):
               
         target = img.to(device)
         for ch in range(self.c.n_phases):
@@ -238,7 +265,7 @@ class PolyWorker(QObject):
         noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
         opt = torch.optim.Adam(params=noise, lr=0.005)
         inpaints = []
-        for i in range(self.opt_iters):
+        for i in range(opt_iters):
             raw = netG(noise[0])
             loss = (raw - target)**2
             loss[target==-1] = 0
@@ -269,6 +296,6 @@ class PolyWorker(QObject):
         netG.load_state_dict(torch.load(f"{self.c.path}/Gen.pt"))
         netD.load_state_dict(torch.load(f"{self.c.path}/Disc.pt"))
 
-        mse, raw = self.inpaint(netG, save_path=save_path, border=border, device=device)
+        mse, raw = self.inpaint(netG, save_path=save_path, border=border, device=device, opt_iters=self.opt_iters)
 
         return raw
