@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
-from src.networks import MiniD
 
 class RectWorker(QObject):
     def __init__(self, c, netG, netD, training_imgs, nc, mask=None, unmasked=None):
