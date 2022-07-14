@@ -11,7 +11,7 @@ from matplotlib.path import Path
 
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
-def main(mode, tag, coords, path, image_type, shape):
+def main(mode, tag, coords, path, image_type, shape, wandb):
     """[summary]
 
     :param mode: [description]
@@ -32,6 +32,7 @@ def main(mode, tag, coords, path, image_type, shape):
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
+        c.wandb = bool(wandb)
         if mode=='train':
             overwrite = util.check_existence(tag)
             util.initialise_folders(tag, overwrite)
@@ -60,7 +61,7 @@ def main(mode, tag, coords, path, image_type, shape):
         netD, netG = networks.make_nets_rect(c, overwrite)
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
         if mode == 'train':
-            worker.train()
+            worker.train_alt()
         elif mode == 'generate':
             sp = 'out.png'
             worker.generate(save_path = sp)
@@ -135,15 +136,20 @@ if __name__ == "__main__":
     parser.add_argument('-p', '--path', default='data/nmc.png')
     parser.add_argument('-i', '--image_type', choices=['n-phase', 'colour', 'grayscale'], default='n-phase')
     parser.add_argument('-s', '--shape', choices=['rect', 'poly'], default='rect')
+    parser.add_argument('-w', '--wandb', choices=["True", "False"], default="True")
 
     args = parser.parse_args()
     if args.tag:
         tag = args.tag
     else:
         tag = 'test'
+    if args.wandb=='True':
+        wandb=True
+    elif args.wandb=="False":
+        wandb=False
 
     coords = args.coords
     
 
-    main(args.mode, tag, coords, args.path, args.image_type, args.shape)
-    # main('train', True, 'test')
+    main(args.mode, tag, coords, args.path, args.image_type, args.shape, wandb)
+    # main('train', 'case2_test', [220, 380, 220, 380], 'data/nmc-1-cal-greyscale.png', 'grayscale', 'rect')

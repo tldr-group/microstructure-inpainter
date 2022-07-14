@@ -7,7 +7,7 @@ class Config():
     def __init__(self, tag):
         self.tag = tag
         self.cli = False
-        self.wandb = True
+        # self.wandb = True
         self.path = f'runs/{self.tag}'
         self.cm = 'gray'
         self.data_path = ''
@@ -20,19 +20,21 @@ class Config():
         self.batch_size = 64
         self.beta1 = 0.9
         self.beta2 = 0.999
-        self.max_iters = 10e12
+        self.max_iters = 50e3
         self.timeout = 60*60*12
         self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10
         self.critic_iters = 10
-        self.pw_coeff = 1e3
+        self.opt_iters=1e4
+        self.finetune_iters=1e4
+        self.pw_coeff = 1e2
         self.lz = 7
         self.lf = 7
         self.dl = 32
         self.ngpu = 1
         if self.ngpu > 0:
-            self.device_name = "cuda:1"
+            self.device_name = "cuda:0"
         else:
             self.device_name = 'cpu'
         self.conv_resize = True
