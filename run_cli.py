@@ -61,7 +61,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         netD, netG = networks.make_nets_rect(c, overwrite)
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
         if mode == 'train':
-            worker.train_alt()
+            worker.train()
         elif mode == 'generate':
             sp = 'out.png'
             worker.generate(save_path = sp)
@@ -74,6 +74,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
+        c.wandb = bool(wandb)
         x1, x2, y1, y2 = coords
         img = plt.imread(c.data_path)
         if image_type == 'n-phase':

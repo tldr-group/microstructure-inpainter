@@ -1,5 +1,6 @@
 import argparse
 import json
+from matplotlib.gridspec import GridSpec
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -20,58 +21,11 @@ prop_cycler = cycler(color=global_colours)
 def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False, metric_compare=False, mse_plot=False, load=False, wass_plot=False):
 
     # Plot analytics
-
     if mse_plot:
-
-        x = 'time'
-        if x == 'iters':
-            x_lab = "Iterations"
-        elif x == 'time':
-            x_lab = "Time / s"
-        max = 60*60*5
-        df1 = pd.read_pickle(f'runs/{tag1}/metrics.pkl')
-        df2 = pd.read_pickle(f'runs/{tag2}/metrics.pkl')
-
-        df1 = df1[df1[x]<=max]
-        df2 = df2[df2[x]<=max]
-
-        plt.figure()
-        plt.rc('axes', prop_cycle=prop_cycler)
-        plt.semilogy(df1[x], df1['mse'], label=legend[0])
-        plt.semilogy(df2[x], df2['mse'], label=legend[1])
-        # plt.ylim(0,0.1)
-        plt.xlabel(x_lab)
-        plt.ylabel("MSE")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(f'analysis/mse_{tag1}_{tag2}_{x}.eps', transparent=True)
-        plt.close()
+        plot_mse(tag1, tag2, legend)
     
     if wass_plot:
-
-        x = 'iters'
-        if x == 'iters':
-            x_lab = "Iterations"
-        elif x == 'time':
-            x_lab = "Time / s"
-        max = 60*60*5
-        df1 = pd.read_pickle(f'runs/{tag1}/metrics.pkl')
-        df2 = pd.read_pickle(f'runs/{tag2}/metrics.pkl')
-
-        df1 = df1[df1[x]<=max]
-        df2 = df2[df2[x]<=max]
-
-        plt.figure()
-        plt.rc('axes', prop_cycle=prop_cycler)
-        plt.semilogy(df1[x], df1['wass'], label=legend[0])
-        plt.semilogy(df2[x], df2['wass'], label=legend[1])
-        # plt.ylim(0,0.1)
-        plt.xlabel(x_lab)
-        plt.ylabel("MSE")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(f'analysis/wass_{tag1}_{tag2}_{x}.png')
-        plt.close()
+        plot_wass(tag1, tag2, legend)
 
     c = Config(tag1)
     c.load()
@@ -84,28 +38,32 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
     # metric comparison params
     samples = 128
     lx, ly = x2-x1, y2-y1
+    delta_x, delta_y = (c.G_out_size[0]-lx) //2, (c.G_out_size[1]-ly) //2
     img, n_phases = util.preprocess(path, image_type)
     img = (img/img.max())
+    print(img.shape, x1,x2,y1,y2)
     if generate:
         # save ground truth
-        # img = plt.imread(path)
-        
-        fig, ax = plt.subplots()
-
+        fig = plt.figure()
+        # fig.suptitle(f"{tag1} - {tag2}")
+        gs = GridSpec(2,4)
+        axGT = fig.add_subplot(gs[:,0])
+        axGT.set_title("Ground truth")
         # ax.imshow(np.stack([img for i in range(3)], -1))
         if image_type=='grayscale':
-            ax.imshow(util.post_process(img.unsqueeze(0),c)[0].permute(1,2,0), cmap='gray')
+            gt = util.post_process(img[:,y1-delta_y:y2+delta_y, x1-delta_x:x2+delta_x].unsqueeze(0),c)[0].permute(1,2,0)
+            print(gt.shape)
+            axGT.imshow(gt, cmap='gray')
             rect_col = '#CC2825'
         else:
-            ax.imshow(util.post_process(img.unsqueeze(0),c)[0].permute(1,2,0))
+            axGT.imshow(util.post_process(img.unsqueeze(0),c)[0].permute(1,2,0)[x1:x2, y1:y2],)
             rect_col='#CC2825'
-        rect = Rectangle((x1, y1),x2-x1,y2-y1,linewidth=1,ls='--', edgecolor=rect_col,facecolor='none')
-        ax.add_patch(rect)
-        ax.set_axis_off()
-        plt.tight_layout()
-        plt.savefig(f'analysis/{tag1}_{tag2}_GT.png', transparent=True)
+        # rect = Rectangle((x1, y1),x2-x1,y2-y1,linewidth=1,ls='--', edgecolor=rect_col,facecolor='none')
+        # axGT.add_patch(rect)
+        axGT.set_axis_off()
+        # plt.tight_layout()
+        # plt.savefig(f'analysis/{tag1}_{tag2}_GT.png', transparent=True)
 
-        
     real_list = []
     if metric_compare and not load:
         for i in range(samples):
@@ -131,8 +89,16 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
     netD, netG = networks.make_nets_rect(c, overwrite)
     worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
     if generate:
-        for i in range(5):
-            worker.generate(save_path=f'analysis/{tag1}_{i}', border=True)
+        axRectAll = fig.add_subplot(gs[0,1:])
+        axRectAll.set_title("G optimisation")
+        axRectAll.set_axis_off()
+        for i in range(3):
+            axRECT = fig.add_subplot(gs[0,i+1])
+            img = worker.generate(save_path=f'analysis/{tag1}_{i}', border=True)
+            img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0))
+            axRECT.imshow(img, cmap='gray')
+            axRECT.set_axis_off()
+            axRECT.set_title(f'Seed {i+1}')
     if metric_compare and not load:
         rect_list = []
         for i in range(samples):
@@ -195,8 +161,17 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
     netD, netG = networks.make_nets_poly(c, overwrite)
     worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
     if generate:
-        for i in range(5):
-            worker.generate(save_path=f'analysis/{tag2}_{i}', border=True)
+        axPolyAll = fig.add_subplot(gs[1,1:])
+        axPolyAll.set_title("z optimisation")
+        axPolyAll.set_axis_off()
+        for i in range(3):
+            axPOLY = fig.add_subplot(gs[1,i+1])
+            img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=1000)[0].permute(1,2,0).detach()
+            img = inpaint(gt, img)
+            axPOLY.imshow(img, cmap='gray')
+            axPOLY.set_axis_off()
+            axPOLY.set_title(f'Seed {i+1}')
+        fig.savefig(f'analysis/{tag1}_{tag2}.png')
     if metric_compare:
         if not load:
             poly_list = [] = []
@@ -234,8 +209,69 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
             labels = []
             colours = []
         plot_vfs(tag1, tag2, data=data, labels=labels, colours=colours, load=load)
-        
-        
+
+def inpaint(gt, im):
+    if gt.shape!=im.shape:
+        print(gt.shape, im.shape)
+        x,y, _ = gt.shape
+        x1,y1,_ = im.shape
+        delta_x, delta_y = x1-x, y1-y
+        im = im[delta_x//2:-delta_x//2, delta_y//2:-delta_y//2]
+        print(im.shape)
+    gt[16:-16,16:-16] = im[16:-16, 16:-16]
+    return gt
+
+def plot_mse(tag1, tag2, legend):
+    x = 'time'
+    if x == 'iters':
+        x_lab = "Iterations"
+    elif x == 'time':
+        x_lab = "Time / s"
+    max = 60*60*5
+    df1 = pd.read_pickle(f'runs/{tag1}/metrics.pkl')
+    df2 = pd.read_pickle(f'runs/{tag2}/metrics.pkl')
+
+    df1 = df1[df1[x]<=max]
+    df2 = df2[df2[x]<=max]
+
+    plt.figure()
+    plt.rc('axes', prop_cycle=prop_cycler)
+    plt.semilogy(df1[x], df1['mse'], label=legend[0])
+    plt.semilogy(df2[x], df2['mse'], label=legend[1])
+    # plt.ylim(0,0.1)
+    plt.xlabel(x_lab)
+    plt.ylabel("MSE")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f'analysis/mse_{tag1}_{tag2}_{x}.eps', transparent=True)
+    plt.close()
+
+def plot_wass(tag1, tag2, legend):
+    x = 'iters'
+    if x == 'iters':
+        x_lab = "Iterations"
+    elif x == 'time':
+        x_lab = "Time / s"
+    max = 60*60*5
+    df1 = pd.read_pickle(f'runs/{tag1}/metrics.pkl')
+    df2 = pd.read_pickle(f'runs/{tag2}/metrics.pkl')
+
+    df1 = df1[df1[x]<=max]
+    df2 = df2[df2[x]<=max]
+
+    plt.figure()
+    plt.rc('axes', prop_cycle=prop_cycler)
+    plt.semilogy(df1[x], df1['wass'], label=legend[0])
+    plt.semilogy(df2[x], df2['wass'], label=legend[1])
+    # plt.ylim(0,0.1)
+    plt.xlabel(x_lab)
+    plt.ylabel("MSE")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(f'analysis/wass_{tag1}_{tag2}_{x}.png')
+    plt.close()  
+
+
 def plot_vfs(tag1, tag2, data=None, labels=None, colours=None, load=True):
     if load:
         with open(f'analysis/vfs_{tag1}_{tag2}_analysis.json', 'r') as fp:

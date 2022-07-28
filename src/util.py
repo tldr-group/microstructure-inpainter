@@ -192,7 +192,7 @@ def make_mask(training_imgs, c):
     # THIS IS WHERE WE TELL D WHAT SIZE TO BE
     # Discriminated region will be half the size of the minimum length of the inpainting region
     # D_size_dim = int(torch.div(mask_size.min(),64, rounding_mode='floor'))*16
-    D_size_dim = mask_size[0].item()-32
+    D_size_dim = G_out_size[0].item()
     D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
@@ -413,17 +413,17 @@ def init_noise(batch_size, nz, c, device):
     noise.requires_grad = True
     return noise
 
-def make_noise(noise, seed_x, seed_y, c, device, mask_noise=True):
+def make_noise(noise, device, mask_noise=False, delta=1):
     # zeros in mask are fixed, ones are random
     mask = torch.zeros_like(noise).to(device)
-    # # mask[:,:, (seed_x-c.D_seed_x)//2:(seed_x+c.D_seed_x)//2, (seed_y-c.D_seed_y)//2:(seed_y+c.D_seed_y)//2] = 1
-    fr=3
-    mask[:,:, fr:-fr, fr:-fr] = 1
+    _, _, x, y = mask.shape
+    # 
     if mask_noise:
+        mask[:,:,x//2-delta:x//2+delta,y//2-delta:y//2+delta] = 1
         rand = torch.randn_like(noise).to(device)*mask
         noise = noise*(mask==0)+rand
     else:
         noise = torch.randn_like(noise).to(device)
-    # plt.imshow(noise[0,0].detach().cpu().numpy())
+    # plt.imshow(mask[0,0].detach().cpu().numpy())
     # plt.savefig('noise.png')
     return noise

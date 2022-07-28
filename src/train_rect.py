@@ -70,8 +70,9 @@ class RectWorker(QObject):
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
-        noise = torch.nn.Parameter(init_noise(batch_size, nz, c, device))
-        optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
+        # noise = torch.nn.Parameter(init_noise(1, nz, c, device))
+        noise = init_noise(1, nz, c, device)
+        # optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
@@ -108,17 +109,15 @@ class RectWorker(QObject):
             netD.zero_grad()
             netG.train()
 
-            mask_noise = True
-
-            d_noise = make_noise(noise.detach(), c.seed_x, c.seed_y, c, device, mask_noise=mask_noise)
+            d_noise = make_noise(noise, device, mask_noise=False)
             fake_data = netG(d_noise).detach()
-            fake_data = crop(fake_data,dl)
-            real_data = batch_real(training_imgs, dl, batch_size, c.mask_coords).to(device)
+            # fake_data = crop(fake_data,dl)
+            real_data = batch_real(training_imgs, fake_data.shape[-1], batch_size, c.mask_coords).to(device)
             # Train on real
             out_real = netD(real_data).mean()
             # train on fake images
             out_fake = netD(fake_data).mean()
-            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, dl, device, Lambda, nc)
+            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, fake_data.shape[-1], device, Lambda, nc)
 
             # Compute the discriminator loss and backprop
             wass = out_fake - out_real
@@ -132,27 +131,21 @@ class RectWorker(QObject):
             # Generator training
             if (i % int(critic_iters)) == 0:
                 netG.zero_grad()
-                optNoise.zero_grad()
-                noise_G = make_noise(noise, c.seed_x, c.seed_y, c, device, mask_noise=mask_noise)
-                
+                # optNoise.zero_grad()
+                noise_G = make_noise(noise, device, mask_noise=False)
                 # Forward pass through G with noise vector
                 fake_data = netG(noise_G)
                 # output = -netD(crop(fake_data, dl, shift=True, prob=0.05)).mean()
-                output = -netD(crop(fake_data, dl)).mean()
-                
-                if i == pw_iters:
-                    print(f"Turning on pixel wise loss, with coeff {c.pw_coeff}")
-                if i >= pw_iters:
-                    pw = pixel_wise_loss(fake_data, mask, unmasked, mode='mse', device=device)
-                    # output += pw.sum()*np.min([i*1e-2, c.pw_coeff])
-                    output += pw*c.pw_coeff
-                else:
-                    pw = torch.zeros_like((fake_data))
+                output = -netD(fake_data).mean()
 
+                noise_G = make_noise(noise, device, mask_noise=True, delta=0)
+                fake_data = netG(noise_G)
+                pw = pixel_wise_loss(fake_data, mask, unmasked, mode='mse', device=device)
+                output += pw
                  # # Calculate loss for G and backprop
                 output.backward(retain_graph=True)
                 optG.step()
-                optNoise.step()
+                # optNoise.step()
 
                 with torch.no_grad():
                     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
@@ -176,7 +169,7 @@ class RectWorker(QObject):
                         end_overall = time.time()
                         t = end_overall-start_overall
                     if self.opt_whilst_train:
-                        plot_noise = make_noise(noise.detach().clone(), c.seed_x, c.seed_y, c, device, mask_noise=mask_noise)[0].unsqueeze(0)
+                        plot_noise = make_noise(noise.detach().clone(), device, mask_noise=True, delta=1)
                         img = netG(plot_noise).detach()
                         # plt.imsave('test.png', img.permute(0,2,3,1).detach().cpu()[0,...,0].numpy())
                         pixmap = update_pixmap_rect(training_imgs, img, c)
@@ -527,8 +520,8 @@ class RectWorker(QObject):
         noise = torch.load(f'{self.c.path}/noise.pt')
         netG.eval()
         with torch.no_grad():
-            idx = np.random.randint(self.c.batch_size)
-            plot_noise = make_noise(noise.detach().clone(), self.c.seed_x, self.c.seed_y, self.c, device)[idx].unsqueeze(0)
+            # idx = np.random.randint(self.c.batch_size)
+            plot_noise = make_noise(noise.detach().clone(), device, mask_noise=True, delta=1)
             # plot_noise = torch.randn_like(plot_noise)
             img = netG(plot_noise).detach()
             plt.imsave('test.png', img.permute(0,2,3,1).detach().cpu()[0,...,0].numpy())

@@ -17,16 +17,16 @@ class Config():
         self.l = 128
         self.n_phases = 2
         # Training hyperparams
-        self.batch_size = 64
+        self.batch_size = 4
         self.beta1 = 0.9
         self.beta2 = 0.999
-        self.max_iters = 50e3
+        self.max_iters = 100e3
         self.timeout = 60*60*12
         self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10
         self.critic_iters = 10
-        self.opt_iters=1e4
+        self.opt_iters=1e3
         self.finetune_iters=1e4
         self.pw_coeff = 1e2
         self.lz = 7
@@ -34,7 +34,7 @@ class Config():
         self.dl = 32
         self.ngpu = 1
         if self.ngpu > 0:
-            self.device_name = "cuda:0"
+            self.device_name = "cuda:1"
         else:
             self.device_name = 'cpu'
         self.conv_resize = True
