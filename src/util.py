@@ -212,9 +212,6 @@ def make_mask(training_imgs, c):
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
     c.D_seed_x = D_seed[0].item()
     c.D_seed_y = D_seed[1].item()
-    print(f"G: seed {img_seed}, size {G_out_size}\n",
-            f"D: seed {D_seed}, size {D_size_dim}\n",
-            f"Occluded: seed {seed}, size {mask_size}")
     return mask, unmasked, D_size_dim, G_out_size, img_seed, c
 
 def update_discriminator(c):
@@ -258,7 +255,7 @@ def update_pixmap_rect(raw, img, c, save_path=None, border=False):
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     updated_pixmap = post_process(updated_pixmap, c).permute(0,2,3,1)
     if c.image_type=='grayscale':
-        pm = updated_pixmap[0,...,0]
+        pm = updated_pixmap[0,...]
     else:
         pm = updated_pixmap[0].numpy()
     if save_path:
@@ -276,10 +273,16 @@ def update_pixmap_rect(raw, img, c, save_path=None, border=False):
             ax.add_patch(rect)
         ax.set_axis_off()
         plt.tight_layout()
-        plt.savefig('data/temp/temp.png', transparent=True, pad_inches=0)
+        plt.savefig('data/temp/temp_fig.png', transparent=True, pad_inches=0)
         plt.close()
+        if c.image_type == 'grayscale':
+            plt.imsave('data/temp/temp.png', np.concatenate([pm for i in range(3)], -1))
+        else:
+            plt.imsave('data/temp/temp.png', pm)
         return fig
     else:
+        if c.image_type == 'grayscale':
+            pm = np.concatenate([pm for i in range(3)], -1)
         plt.imsave('data/temp/temp.png', pm)
         return pm
     
@@ -365,7 +368,6 @@ def pixel_wise_loss(fake_img, real_img, unmasked, mode='mse', device=None):
         loss = torch.nn.MSELoss(reduction='sum')(fake_img, real_img)/(number_valid_pixels*fake_img.shape[0]*fake_img.shape[1])
     elif mode=='ce':
         loss = -(real_img*torch.log(fake_img) + (1-real_img)*torch.log(1-fake_img)).nanmean()
-        # loss = torch.nn.CrossEntropyLoss(reduction='none')(fake_img, real_img).unsqueeze(1)
 
     return loss
 
@@ -419,7 +421,10 @@ def make_noise(noise, device, mask_noise=False, delta=1):
     _, _, x, y = mask.shape
     # 
     if mask_noise:
-        mask[:,:,x//2-delta:x//2+delta,y//2-delta:y//2+delta] = 1
+        if delta>0:
+            mask[:,:,x//2-delta:x//2+delta,y//2-delta:y//2+delta] = 1
+        elif delta==0:
+            mask[:,:,x//2,y//2] = 1
         rand = torch.randn_like(noise).to(device)*mask
         noise = noise*(mask==0)+rand
     else:

@@ -293,9 +293,6 @@ class PainterWidget(QWidget):
             print(f'training with {c.n_phases} channels using image type {self.image_type} and net type conv resize')
             self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, self.frames, overwrite)
 
-            # plt.imsave('mask.png', mask)
-            # plt.imsave('real_data_seeds.png', rect_mask)
-
             
             
         self.thread = QThread()

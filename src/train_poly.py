@@ -189,7 +189,6 @@ class PolyWorker(QObject):
     def inpaint(self, netG, save_path=None, border=False, device='cpu', opt_iters=1000):
         print(f"Iterating for {opt_iters} iterations")
         img = preprocess(self.c.data_path, self.c.image_type)[0]
-        
         if self.c.image_type =='n-phase':
             final_imgs = [torch.argmax(img, dim=0) for i in range(self.frames)]
             final_img_fresh = torch.argmax(img, dim=0)
@@ -200,8 +199,8 @@ class PolyWorker(QObject):
             x0, y0, x1, y1 = (int(i) for i in rect)
             w, h = x1-x0, y1-y0
             w_init, h_init = w,h
-            x1 += 32 - w%32
-            y1 += 32 - h%32
+            # x1 += 32 - w%32
+            # y1 += 32 - h%32
             w, h = x1-x0, y1-y0
             im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
             mask_crop = self.mask[x0-16:x1+16, y0-16:y1+16]
@@ -220,7 +219,7 @@ class PolyWorker(QObject):
                 out = np.stack([final_img for i in range(3)], -1)
                 plt.imsave(f'data/temp/temp{i}.png', out)
             else:
-                for ch in range(self.c.n_phases): 
+                for ch in range(self.c.n_phases):    
                     final_img[:,:,ch][self.mask==0] = final_img_fresh[:,:,ch][self.mask==0]
                 if self.c.image_type=='colour':
                     out = final_img.numpy()
@@ -278,23 +277,27 @@ class PolyWorker(QObject):
         noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
         opt = torch.optim.Adam(params=noise, lr=0.005)
         inpaints = []
-        for i in range(opt_iters):
+        if opt_iters>0:
+            for i in range(opt_iters):
+                raw = netG(noise[0])
+                loss = (raw - target)**4
+                loss[target==-1] = 0
+                loss = loss.sum() / ((target!=-1).sum()*loss.shape[1]*loss.shape[0])
+                # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
+                loss.backward()
+                opt.step()
+                with torch.no_grad():
+                    noise[0] -= torch.tile(torch.mean(noise[0], dim=[1]), (1, self.c.nz,1,1))
+                    noise[0] /= torch.tile(torch.std(noise[0], dim=[1]), (1, self.c.nz,1,1))
+                if i%self.save_inpaint==0:
+                    if self.c.image_type == 'n-phase':
+                        raw = torch.argmax(raw[0], dim=0)[16:-16, 16:-16].detach().cpu()
+                    else:
+                        raw = raw[0].permute(1,2,0)[16:-16, 16:-16].detach().cpu()
+                    inpaints.append(raw)
+        else:
+            loss = torch.Tensor([0])
             raw = netG(noise[0])
-            loss = (raw - target)**2
-            loss[target==-1] = 0
-            loss = loss.sum() / ((target!=-1).sum()*loss.shape[1]*loss.shape[0])
-            # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
-            loss.backward()
-            opt.step()
-            with torch.no_grad():
-                noise[0] -= torch.tile(torch.mean(noise[0], dim=[1]), (1, self.c.nz,1,1))
-                noise[0] /= torch.tile(torch.std(noise[0], dim=[1]), (1, self.c.nz,1,1))
-            if i%self.save_inpaint==0:
-                if self.c.image_type == 'n-phase':
-                    raw = torch.argmax(raw[0], dim=0)[16:-16, 16:-16].detach().cpu()
-                else:
-                    raw = raw[0].permute(1,2,0)[16:-16, 16:-16].detach().cpu()
-                inpaints.append(raw)
         return inpaints, loss.item(), raw
     
     def generate(self, save_path=None, border=False, opt_iters=None):
