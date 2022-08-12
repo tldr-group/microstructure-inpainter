@@ -31,8 +31,8 @@ class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
         self.parent = parent
-        self.image = QPixmap("data/nmc.png")
-        self.img_path = "data/nmc.png"
+        self.image = QPixmap("data/example_inpainting.png")
+        self.img_path = "data/example_inpainting.png"
         self.shape = 'rect'
         self.image_type = 'n-phase'
         self.poly = []
@@ -292,9 +292,6 @@ class PainterWidget(QWidget):
             
             print(f'training with {c.n_phases} channels using image type {self.image_type} and net type conv resize')
             self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, self.frames, overwrite)
-
-            # plt.imsave('mask.png', mask)
-            # plt.imsave('real_data_seeds.png', rect_mask)
 
             
             

@@ -123,9 +123,11 @@ def preprocess(data_path, imtype, load=True):
     # img = tifffile.imread(data_path)
     img = plt.imread(data_path)
     if imtype == 'colour':
-            img = img[:,:,:3]
-            img = torch.tensor(img)
-            return img.permute(2,0,1), 3
+        img = img[:,:,:3]
+        img = torch.tensor(img)
+        if torch.max(img)>1:
+            img = img /torch.max(img)
+        return img.permute(2,0,1), 3
     else:
         if len(img.shape) > 2:
             img = img[...,0]
@@ -141,7 +143,9 @@ def preprocess(data_path, imtype, load=True):
         elif imtype == 'grayscale':
             img = np.expand_dims(img, 0)
             img = torch.tensor(img)
-            return img, len(phases)
+            if torch.max(img)>1:
+                img = img /torch.max(img)
+            return img, 1
 
 
 def calculate_size_from_seed(seed, c):
@@ -175,15 +179,21 @@ def calculate_seed_from_size(imsize, c):
     return imsize
 
 def make_mask(training_imgs, c):
+
     y1,y2,x1,x2 = c.mask_coords
     ydiff, xdiff = y2-y1, x2-x1
+
+    # seed for size of inpainting region
     seed = calculate_seed_from_size(torch.tensor([xdiff, ydiff]).to(int), c)
+    # add 1 seed to each side to make the MSE region, the total G region
     img_seed = seed+2
     G_out_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
-    D_size_dim = int(torch.div(mask_size.min(),32, rounding_mode='floor'))*16
+    # THIS IS WHERE WE TELL D WHAT SIZE TO BE
+    # Discriminated region will be half the size of the minimum length of the inpainting region
+    # D_size_dim = int(torch.div(mask_size.min(),64, rounding_mode='floor'))*16
+    D_size_dim = G_out_size[0].item()
     D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
-
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
     x1_bound, x2_bound, y1_bound, y2_bound = xmid-G_out_size[0].item()//2, xmid+G_out_size[0].item()//2, ymid-G_out_size[1].item()//2, ymid+G_out_size[1].item()//2
@@ -196,12 +206,12 @@ def make_mask(training_imgs, c):
     mask = torch.cat((mask, mask_layer[:,x1_bound:x2_bound, y1_bound:y2_bound]))
 
     # save coords to c
+    c.img_seed_x, c.img_seed_y = (img_seed[0].item(), img_seed[1].item())
     c.mask_coords = (x1,x2,y1,y2)
     c.G_out_size = (G_out_size[0].item(), G_out_size[1].item())
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
     c.D_seed_x = D_seed[0].item()
     c.D_seed_y = D_seed[1].item()
-    
     return mask, unmasked, D_size_dim, G_out_size, img_seed, c
 
 def update_discriminator(c):
@@ -218,7 +228,7 @@ def update_discriminator(c):
             dk.append(4)
             ds.append(2)
             dp.append(1)
-            df.append(int(np.min([2**(layer+6), 512])))
+            df.append(int(np.min([2**(layer+6), 1024])))
             layer += 1
         elif out_check<1:
             dp[layer] = int(round((2+dk[layer]-out)/2))
@@ -232,6 +242,12 @@ def update_discriminator(c):
     return c
 
 def update_pixmap_rect(raw, img, c, save_path=None, border=False):
+    # fig, ax = plt.subplots(211)
+    # ax[0].imshow(img[0,0].detach().cpu().numpy())
+    # ax[1].imshow(img[0,1].detach().cpu().numpy())
+    # plt.imshow(img[0].cpu().permute(1,2,0).numpy())
+    # plt.savefig('data/temp/raw.png')
+    # plt.close()
     updated_pixmap = raw.clone().unsqueeze(0)
     x1, x2, y1, y2 = c.mask_coords
     lx, ly = c.mask_size
@@ -239,22 +255,36 @@ def update_pixmap_rect(raw, img, c, save_path=None, border=False):
     updated_pixmap[:,:, x1:x2, y1:y2] = img[:,:,x_1:x_2, y_1:y_2]
     updated_pixmap = post_process(updated_pixmap, c).permute(0,2,3,1)
     if c.image_type=='grayscale':
-        pm = updated_pixmap[0,...,0]
+        pm = updated_pixmap[0,...]
     else:
         pm = updated_pixmap[0].numpy()
-    
     if save_path:
         fig, ax = plt.subplots()
-        ax.imshow(pm)
+        if c.image_type=='grayscale':
+            ax.imshow(pm, cmap='gray')
+            rect_col = '#CC2825'
+        else:
+            ax.imshow(pm)
+            rect_col = "#CC2825"
+            # rect_col = 'white'
+            
         if border:
-            rect = Rectangle((x1,y1),lx,ly,linewidth=2,edgecolor='b',facecolor='none')
+            rect = Rectangle((y1,x1),ly,lx,linewidth=1,ls='--', edgecolor=rect_col,facecolor='none')
             ax.add_patch(rect)
         ax.set_axis_off()
-        plt.savefig('data/temp/temp.png', transparent=True, pad_inches=0)
+        plt.tight_layout()
+        plt.savefig('data/temp/temp_fig.png', transparent=True, pad_inches=0)
         plt.close()
+        if c.image_type == 'grayscale':
+            plt.imsave('data/temp/temp.png', np.concatenate([pm for i in range(3)], -1))
+        else:
+            plt.imsave('data/temp/temp.png', pm)
         return fig
     else:
+        if c.image_type == 'grayscale':
+            pm = np.concatenate([pm for i in range(3)], -1)
         plt.imsave('data/temp/temp.png', pm)
+        return pm
     
 
 def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
@@ -325,7 +355,7 @@ def batch_real(img, l, bs, mask_coords):
         data[i] = img[:, x:x+l, y:y+l]
     return data
 
-def pixel_wise_loss(fake_img, real_img, device=None):
+def pixel_wise_loss(fake_img, real_img, unmasked, mode='mse', device=None):
     mask = real_img.clone().permute(1,2,0)
     mask = (mask[...,-1]==0).unsqueeze(0)
     number_valid_pixels = mask.sum()
@@ -333,7 +363,13 @@ def pixel_wise_loss(fake_img, real_img, device=None):
     fake_img = torch.where(mask==True, fake_img, torch.tensor(0).float().to(device))
     real_img = real_img.unsqueeze(0).repeat(fake_img.shape[0], 1 ,1, 1)[:,0:-1]
     real_img = torch.where(mask==True, real_img, torch.tensor(0).float().to(device))
-    return torch.nn.MSELoss(reduction='sum')(fake_img, real_img)/(number_valid_pixels*fake_img.shape[0]*fake_img.shape[1])
+
+    if mode=='mse':
+        loss = torch.nn.MSELoss(reduction='sum')(fake_img, real_img)/(number_valid_pixels*fake_img.shape[0]*fake_img.shape[1])
+    elif mode=='ce':
+        loss = -(real_img*torch.log(fake_img) + (1-real_img)*torch.log(1-fake_img)).nanmean()
+
+    return loss
 
 # Evaluation util
 def post_process(img, c):
@@ -347,8 +383,8 @@ def post_process(img, c):
     img = img.detach().cpu()
     if c.image_type=='n-phase':
         phases = np.arange(c.n_phases)
-        # color = iter(cm.rainbow(np.linspace(0, 1, c.n_phases)))
-        color = iter([[0,0,0],[0.5,0.5,0.5], [1,1,1]])
+        color = iter(cm.get_cmap(c.cm)(np.linspace(0, 1, c.n_phases)))
+        # color = iter([[0,0,0],[0.5,0.5,0.5], [1,1,1]])
         img = torch.argmax(img, dim=1)
         if len(phases) > 10:
             raise AssertionError('Image not one hot encoded.')
@@ -364,12 +400,14 @@ def post_process(img, c):
         out = img
     return out
 
-def crop(fake_data, l, prob=0):
+def crop(fake_data, l, miniD=False, l_mini=16, offset=8):
     w = fake_data.shape[2]
     h = fake_data.shape[3]
     x1,x2 = (w-l)//2,(w+l)//2
     y1,y2 = (h-l)//2,(h+l)//2
-    return fake_data[:,:,x1:x2, y1:y2]
+    
+    out = fake_data[:,:,x1:x2, y1:y2]
+    return out
 
 def init_noise(batch_size, nz, c, device):
     noise = torch.randn(1, nz, c.seed_x, c.seed_y, device=device)
@@ -377,18 +415,20 @@ def init_noise(batch_size, nz, c, device):
     noise.requires_grad = True
     return noise
 
-def make_noise(noise, seed_x, seed_y, c, device, mask_noise=True):
+def make_noise(noise, device, mask_noise=False, delta=1):
+    # zeros in mask are fixed, ones are random
     mask = torch.zeros_like(noise).to(device)
-    mask[:,:, (seed_x-c.D_seed_x)//2:(seed_x+c.D_seed_x)//2, (seed_y-c.D_seed_y)//2:(seed_y+c.D_seed_y)//2] = 1
-    # mask[:,:, 1:-1, 1:-1] = 1
+    _, _, x, y = mask.shape
+    # 
     if mask_noise:
+        if delta>0:
+            mask[:,:,x//2-delta:x//2+delta,y//2-delta:y//2+delta] = 1
+        elif delta==0:
+            mask[:,:,x//2,y//2] = 1
         rand = torch.randn_like(noise).to(device)*mask
         noise = noise*(mask==0)+rand
     else:
         noise = torch.randn_like(noise).to(device)
-    return noise
-
-def set_grads_noise(noise):
-    # remove buffer region from being updated
-    noise.grad[:,:,1:-1,1:-1] = 0
+    # plt.imshow(mask[0,0].detach().cpu().numpy())
+    # plt.savefig('noise.png')
     return noise

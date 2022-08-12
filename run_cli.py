@@ -11,7 +11,7 @@ from matplotlib.path import Path
 
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
-def main(mode, tag, coords, path, image_type, shape):
+def main(mode, tag, coords, path, image_type, shape, wandb):
     """[summary]
 
     :param mode: [description]
@@ -32,6 +32,7 @@ def main(mode, tag, coords, path, image_type, shape):
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
+        c.wandb = bool(wandb)
         if mode=='train':
             overwrite = util.check_existence(tag)
             util.initialise_folders(tag, overwrite)
@@ -62,7 +63,7 @@ def main(mode, tag, coords, path, image_type, shape):
         if mode == 'train':
             worker.train()
         elif mode == 'generate':
-            sp = 'out.png'
+            sp = 'out'
             worker.generate(save_path = sp)
         else:
             raise ValueError("Mode not recognised")
@@ -73,10 +74,14 @@ def main(mode, tag, coords, path, image_type, shape):
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
+        c.wandb = bool(wandb)
         x1, x2, y1, y2 = coords
         img = plt.imread(c.data_path)
         if image_type == 'n-phase':
-            h, w = img.shape
+            try:
+                h, w = img.shape
+            except:
+                h, w, _ = img.shape
         else:
             h, w, _ = img.shape
         new_polys = [[(x1,y1), (x1, y2), (x2,y2), (x2, y1)]]
@@ -91,6 +96,10 @@ def main(mode, tag, coords, path, image_type, shape):
             mask += grid.reshape(h, w)
             xs, ys = [point[1] for point in poly], [point[0] for point in poly]
             poly_rects.append((np.min(xs), np.min(ys), np.max(xs),np.max(ys)))
+        if c.cli:
+            # correct offset for rect inpaints
+            mask = np.roll(mask,(-1,-1), axis=(0,1))
+            mask[y1:y2, x2-1] = 1
         seeds_mask = np.zeros((h,w))
         for x in range(c.l):
             for y in range(c.l):
@@ -132,15 +141,20 @@ if __name__ == "__main__":
     parser.add_argument('-p', '--path', default='data/nmc.png')
     parser.add_argument('-i', '--image_type', choices=['n-phase', 'colour', 'grayscale'], default='n-phase')
     parser.add_argument('-s', '--shape', choices=['rect', 'poly'], default='rect')
+    parser.add_argument('-w', '--wandb', choices=["True", "False"], default="True")
 
     args = parser.parse_args()
     if args.tag:
         tag = args.tag
     else:
         tag = 'test'
+    if args.wandb=='True':
+        wandb=True
+    elif args.wandb=="False":
+        wandb=False
 
     coords = args.coords
     
 
-    main(args.mode, tag, coords, args.path, args.image_type, args.shape)
-    # main('train', True, 'test')
+    main(args.mode, tag, coords, args.path, args.image_type, args.shape, wandb)
+    # main('train', 'case2_test', [220, 380, 220, 380], 'data/nmc-1-cal-greyscale.png', 'grayscale', 'rect')

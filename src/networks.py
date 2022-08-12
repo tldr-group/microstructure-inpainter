@@ -36,25 +36,19 @@ def make_nets_rect(config, training=True):
                     self.convs.append(nn.Conv2d(
                         gf[lay], gf[lay+1], k, s, p, bias=False, padding_mode='reflect'))
                 self.bns.append(nn.BatchNorm2d(gf[lay+1]))
-                
-        def batch_norm(self, x):
-            # TODO - dont just //3 but use size of discriminated region as batch norm area
-            _, _, x_dim, y_dim = x.shape
-            x_dim = x_dim//3
-            x = (x - torch.mean(x[:,:,x_dim:-x_dim,x_dim:-x_dim])) / torch.std(x[:,:,x_dim:-x_dim,x_dim:-x_dim])
-            return x
 
         def forward(self, x):
             count = 0
+            # layers = []
             for conv, bn in zip(self.convs[:-1], self.bns[:-1]):
                 if count<self.no_layers-2:
                     x = conv(x)
-                    x = self.batch_norm(x)
+                    x = bn(x)
                     x = F.relu_(x)
                 else:
                     x = conv(x)
-                    x = F.interpolate(x, [x.shape[-2]*2+2, x.shape[-1]*2+2])
-                    x = self.batch_norm(x)
+                    x = F.interpolate(x, [x.shape[-2]*2+2, x.shape[-1]*2+2], mode='bilinear')
+                    x = bn(x)
                     x = F.relu_(x)
                 count+=1
             if config.image_type == 'n-phase':
@@ -74,6 +68,7 @@ def make_nets_rect(config, training=True):
         def forward(self, x):
             for conv in self.convs[:-1]:
                 x = F.relu_(conv(x))
+                
             x = self.convs[-1](x)  # bs x 1 x 1
             return x
 
