@@ -63,7 +63,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         if mode == 'train':
             worker.train()
         elif mode == 'generate':
-            sp = 'out.png'
+            sp = 'out'
             worker.generate(save_path = sp)
         else:
             raise ValueError("Mode not recognised")
@@ -96,6 +96,10 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             mask += grid.reshape(h, w)
             xs, ys = [point[1] for point in poly], [point[0] for point in poly]
             poly_rects.append((np.min(xs), np.min(ys), np.max(xs),np.max(ys)))
+        if c.cli:
+            # correct offset for rect inpaints
+            mask = np.roll(mask,(-1,-1), axis=(0,1))
+            mask[y1:y2, x2-1] = 1
         seeds_mask = np.zeros((h,w))
         for x in range(c.l):
             for y in range(c.l):
