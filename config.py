@@ -26,27 +26,25 @@ class Config():
         self.lr = 0.0005
         self.Lambda = 10
         self.critic_iters = 10
-        self.opt_iters=1e3
-        self.finetune_iters=1e4
-        self.pw_coeff = 10
+        self.pw_coeff = 1
         self.lz = 7
         self.lf = 7
         self.dl = 32
         self.ngpu = 1
         if self.ngpu > 0:
-            self.device_name = "cuda:0"
+            self.device_name = "cuda:1"
         else:
             self.device_name = 'cpu'
         self.conv_resize = True
         self.nz = 100
         # Architecture
-        self.lays = 5
+        self.lays = 4
         self.laysd = 5
         # kernel sizes
         self.dk, self.gk = [4]*self.laysd, [4]*self.lays
         self.ds, self.gs = [2]*self.laysd, [2]*self.lays
         self.df, self.gf = [self.n_phases, 64, 128, 256, 512, 1], [
-            self.nz, 512, 256, 128, 64, self.n_phases]
+            self.nz, 512, 256, 128, self.n_phases]
         self.dp, self.gp = [1]*self.laysd, [2]*self.lays
         # Last two layers conv resize (3,1,0)
         self.gk[-2:], self.gs[-2:], self.gp[-2:] = [3, 3], [1,1], [0,0]
@@ -92,5 +90,10 @@ class ConfigPoly(Config):
             self.nz, 2048, 1024, 512, 256, self.n_phases]
         self.dp = [1, 1, 1, 1, 0]
         self.gp = [2, 2, 2, 2, 3]
+        # optimisation parameters
+        self.opt_iters = 10000
+        self.opt_lr = 0.001
+        # if self.image_type=='colour':
+        self.opt_kl_coeff = 0.00001
     def get_train_params(self):
         return self.l, self.batch_size, self.beta1, self.beta2, self.lrg, self.lr, self.Lambda, self.critic_iters, self.lz, self.nz

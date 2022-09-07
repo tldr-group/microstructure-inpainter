@@ -65,8 +65,6 @@ class RectWorker(QObject):
         # Get train params
         l, dl, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
 
-        pw_iters = 0
-
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
@@ -92,10 +90,6 @@ class RectWorker(QObject):
             wandb.watch(netD)
         i=0
         t=0
-        mses = []
-        iter_list = []
-        time_list = []
-        wass_list = []
         # start timing training
         if ('cuda' in str(device)) and (ngpu > 1):
                 start_overall = torch.cuda.Event(enable_timing=True)
@@ -171,11 +165,8 @@ class RectWorker(QObject):
                     if self.opt_whilst_train:
                         plot_noise = make_noise(noise.detach().clone(), device, mask_noise=True, delta=-1)
                         img = netG(plot_noise).detach()
-                        # plt.imsave('test.png', img.permute(0,2,3,1).detach().cpu()[0,...,0].numpy())
                         pixmap = update_pixmap_rect(training_imgs, img, c)
                     
-                        # Normalise wass for comparison
-                        # wass = wass / np.prod(real_data.shape)
 
                         if c.cli:
                             print(f'Iter: {i}, Time: {t:.1f}, MSE: {pw.sum().item():.2g}, Wass: {abs(wass.item()):.2g}')
@@ -183,16 +174,8 @@ class RectWorker(QObject):
                                 wandb.log({'mse':pw.nanmean().item(), 'wass':wass.item(), 
                                 'gp': gradient_penalty.item(), 
                                 'raw out': wandb.Image(img[0].cpu()), 'inpaint out': wandb.Image(pixmap)}, step=i)
-                                # 'mse image':wandb.Image(pw[0,0]/pw[0,0].max()),
                         else:
                             self.progress.emit(i, t, pw.item(), abs(wass.item()))
-                        # save metrics to pkl
-                        # time_list.append(t)
-                        # mses.append(pw.sum().item())
-                        # wass_list.append(abs(wass.item()))
-                        # iter_list.append(i)
-                        # df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
-                        # df.to_pickle(f'runs/{tag}/metrics.pkl')
                     else:
                         print(f"Iter: {i}, Time {t:.1f}")
                     
@@ -208,7 +191,8 @@ class RectWorker(QObject):
         print("TRAINING FINISHED")        
 
     def generate(self, save_path=None, border=False, delta=None):
-        print("Generating new inpainted image")
+        if self.verbose:
+            print("Generating new inpainted image")
         device = torch.device(self.c.device_name if(
             torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
         netG = self.netG().to(device)
@@ -223,8 +207,11 @@ class RectWorker(QObject):
         with torch.no_grad():
             # delta is an int that dictates how much of the centre of the seed is random
             if delta is None:
-                delta = min(noise.shape[2:])//4-2
-                mask_noise=True
+                if min(noise.shape[2:])<14:
+                    mask_noise=False
+                else:
+                    delta = min(noise.shape[2:])-14
+                    mask_noise=True
             elif delta=='rand':
                 mask_noise=False
             plot_noise = make_noise(noise.detach().clone(), device, mask_noise=mask_noise, delta=delta)
