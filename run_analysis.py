@@ -23,19 +23,9 @@ prop_cycler = cycler(color=global_colours)
 font = {'size': 8}
 matplotlib.rc('font', **font)
 
-def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False, metric_compare=False, mse_plot=False, load=False, wass_plot=False, z_span=False, tpc=False):
-
-    # Plot analytics
-    if mse_plot:
-        plot_mse(tag1, tag2, legend)
+def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=False, borders=False):
     
-    if wass_plot:
-        plot_wass(tag1, tag2, legend)
-
-    if tpc and tag1 == 'empty':
-        plot_border_analysis()
-    
-    if generate or metric_compare or z_span or (tpc and tag1 != 'empty'):
+    if generate or metric_compare or z_span or (borders and tag1 != 'empty'):
 
         c = Config(tag1)
         c.load()
@@ -46,7 +36,7 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
         path = c.data_path
         image_type = c.image_type
         # metric comparison params
-        samples = 2
+        samples = 128
         lx, ly = x2-x1, y2-y1
         delta_x, delta_y = (c.G_out_size[0]-lx) //2, (c.G_out_size[1]-ly) //2
         img, n_phases = util.preprocess(path, image_type)
@@ -99,6 +89,7 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
         mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
         netD, netG = networks.make_nets_rect(c, overwrite)
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
+        worker.verbose = True
         if generate:
             axRectAll = fig.add_subplot(gs[0,1:])
             axRectAll.annotate('G opt.', xy=(1.15, 0.5), xytext=(0, 0),
@@ -121,18 +112,18 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
             rect_list_fixed = []
             for i in range(samples):
                 for ls, delta in zip([rect_list_rand, rect_list_fixed],['rand',None]):
-                    im = worker.generate(delta)[0].cpu()
+                    im = worker.generate(delta=delta)[0].cpu()
                     im = (torch.argmax(im, dim=0))
                     x,y = im.shape
                     im = im[16:-16,16:-16,]
                     ph = np.unique(im)
                     vfs = ()
                     for p in ph:
-                        i = im==p
-                        vfs = vfs + (i.float().mean().item(),)
+                        l = im==p
+                        vfs = vfs + (l.float().mean().item(),)
                     ls.append(vfs)
 
-        if tpc:
+        if borders:
             rect_im = worker.generate()
         # POLY
 
@@ -183,7 +174,7 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
         c.image_type = c.image_type
         netD, netG = networks.make_nets_poly(c, overwrite)
         worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
-        
+        worker.verbose = True
         if z_span:
             plot_z_span(worker, tag2)
             
@@ -196,7 +187,7 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
             axPolyAll.set_axis_off()
             for i in range(2):
                 axPOLY = fig.add_subplot(gs[1,i+1])
-                img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=1000)
+                img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=10000)
                 img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0).detach())
                 axPOLY.imshow(img, cmap='gray')
                 axPOLY.set_axis_off()
@@ -212,7 +203,7 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
                 poly_list_unopt = []
                 poly_list_opt = []
                 for i in range(samples):
-                    for opt_iters in [0,1000]:
+                    for opt_iters in [0,10000]:
                         im = worker.generate(opt_iters=opt_iters)[0].detach().cpu()
                         im = (torch.argmax(im, dim=0))
                         x,y = im.shape
@@ -249,11 +240,13 @@ def main(tag1, tag2, legend=['G optimisation', 'z optimisation'], generate=False
                 data = []
                 labels = []
                 colours = []
-            plot_vfs(tag1, tag2, data=data, labels=labels, colours=colours, load=load)
+            plot_vfs(tag1, tag2, data=data, labels=labels, load=load)
         
-        if tpc:
-            poly_im = worker.generate(opt_iters=1000)
-            plot_border_analysis_specfic(tag1, tag2, c,rect_im.detach().cpu(),poly_im.detach().cpu())
+        if borders:
+            poly_im = worker.generate()
+            poly_im_unopt = worker.generate(opt_iters=0)
+            # plot_border_analysis_specfic(tag1, tag2, c,rect_im.detach().cpu(),poly_im.detach().cpu())
+            border_contiguity_analysis(tag1, tag2, c, rect_im.detach().cpu(), poly_im.detach().cpu(), poly_im_unopt.detach().cpu())
 
 def inpaint(gt, im):
     gt[16:-16,16:-16] = im[16:-16, 16:-16]
@@ -350,56 +343,6 @@ def plot_z_span(worker, tag2):
     fig.savefig(f'analysis/{tag2}_zspan.png')
     fig.savefig(f'analysis/{tag2}_zspan.eps', transparent=True)
 
-def plot_mse(tag1, tag2, legend):
-    x = 'time'
-    if x == 'iters':
-        x_lab = "Iterations"
-    elif x == 'time':
-        x_lab = "Time / s"
-    max = 60*60*5
-    df1 = pd.read_pickle(f'runs/{tag1}/metrics.pkl')
-    df2 = pd.read_pickle(f'runs/{tag2}/metrics.pkl')
-
-    df1 = df1[df1[x]<=max]
-    df2 = df2[df2[x]<=max]
-
-    plt.figure()
-    plt.rc('axes', prop_cycle=prop_cycler)
-    plt.semilogy(df1[x], df1['mse'], label=legend[0])
-    plt.semilogy(df2[x], df2['mse'], label=legend[1])
-    # plt.ylim(0,0.1)
-    plt.xlabel(x_lab)
-    plt.ylabel("MSE")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f'analysis/mse_{tag1}_{tag2}_{x}.eps', transparent=True)
-    plt.close()
-
-def plot_wass(tag1, tag2, legend):
-    x = 'iters'
-    if x == 'iters':
-        x_lab = "Iterations"
-    elif x == 'time':
-        x_lab = "Time / s"
-    max = 60*60*5
-    df1 = pd.read_pickle(f'runs/{tag1}/metrics.pkl')
-    df2 = pd.read_pickle(f'runs/{tag2}/metrics.pkl')
-
-    df1 = df1[df1[x]<=max]
-    df2 = df2[df2[x]<=max]
-
-    plt.figure()
-    plt.rc('axes', prop_cycle=prop_cycler)
-    plt.semilogy(df1[x], df1['wass'], label=legend[0])
-    plt.semilogy(df2[x], df2['wass'], label=legend[1])
-    # plt.ylim(0,0.1)
-    plt.xlabel(x_lab)
-    plt.ylabel("MSE")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(f'analysis/wass_{tag1}_{tag2}_{x}.png')
-    plt.close()  
-
 
 def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
     with open(f'analysis/vfs_{tag1}_{tag2}_analysis.json', 'r') as fp:
@@ -451,6 +394,7 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
         # modify the paths to not go further right than the center
         b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], -np.inf, m)
         b.set_facecolor(colours[i])
+        b.set_edgecolor('white')
         b.set_alpha(1)
 
     for j in parts_G_rand['cmeans'].get_paths():
@@ -463,6 +407,7 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
         # modify the paths to not go further right than the center
         b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], m, np.inf)
         b.set_facecolor(colours[i])
+        b.set_edgecolor('white')
         b.set_alpha(1)
 
     for j in parts_G_fixed['cmeans'].get_paths():
@@ -476,6 +421,7 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
         # modify the paths to not go further right than the center
         b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], -np.inf, m)
         b.set_facecolor(colours[i])
+        b.set_edgecolor('white')
         b.set_alpha(1)
         
     for j in parts_z_unopt['cmeans'].get_paths():
@@ -488,6 +434,7 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
         # modify the paths to not go further right than the center
         b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], m, np.inf)
         b.set_facecolor(colours[i])
+        b.set_edgecolor('white')
         b.set_alpha(1)
 
     for j in parts_z_opt['cmeans'].get_paths():
@@ -512,104 +459,27 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
     plt.savefig(f'analysis/{tag1}_{tag2}_vf_violinplot_transparent.png', transparent=True)
     plt.savefig(f'analysis/{tag1}_{tag2}_vf_violinplot.png')
 
-def plot_border_analysis():
-    print('Plotting border analysis')
-    size = 16
-    l = 96
-    x1=129
-    y1=318
-    gt = plt.imread('data/micro237.png')
-    gt = gt[x1:x1+l,y1:y1+l,0]
-    bad_inpaint = plt.imread('analysis/inpaint_bad.png')[x1:x1+l,y1:y1+l,0]
-    good_inpaint = plt.imread('analysis/inpaint_good.png')[x1:x1+l,y1:y1+l,0]
-    test_zeros = gt.copy()
-    test_zeros[size:-size,size:-size] = 0
 
-    test_noise = gt.copy()
-    test_noise[size:-size,size:-size] = np.clip(np.random.randn(l-2*size,l-2*size),0,1)
-
-    diffs = []
-    data_list = [gt, test_zeros, test_noise, bad_inpaint, good_inpaint]
-    name_list = ['Ground truth', 'Zeros', 'Noise', 'Inpaint 1', 'Inpaint 2']
-    axes_list = [[0],[0,1],[0,2],[1,1],[1,2]]
-
-    maskl = np.zeros_like(data_list[0])
-    maskr = np.zeros_like(data_list[0])
-    masku = np.zeros_like(data_list[0])
-    maskd = np.zeros_like(data_list[0])
-    maskl[size:-size,size:size+1] = 1
-    maskd[-size-1:-size, size:-size] = 1
-    masku[size:size+1, size:-size] = 1
-    maskr[size:-size, -size-1:-size] = 1
-    mask = maskl + maskr + masku + maskd
-    mask = mask>0
-    fig = plt.figure()
-    gs = GridSpec(2,3)
-    for d, a, n in zip(data_list, axes_list, name_list):
-        if len(a)>1:
-            x,y = a
-            ax = fig.add_subplot(gs[x,y])
-        else:
-            ax = fig.add_subplot(gs[:,a[0]])
-        ax.imshow(d, cmap='gray')
-        ax.set_title(n)
-        ax.set_axis_off()
-        fig.savefig('analysis/border_analysis.png')
-
-    
-    for j, (d, a, n) in enumerate(zip(data_list, axes_list, name_list)):
-        dl = np.roll(d, 1, axis=1)
-        dd = np.roll(d, -1, axis=0)
-        dr = np.roll(d, -1, axis=1)
-        du = np.roll(d, 1, axis=0)
-        diffl = ((d-dl)**2)[maskl==1]
-        diffd = ((d-dd)**2)[maskd==1]
-        diffr = ((d-dr)**2)[maskr==1]
-        diffu = ((d-du)**2)[masku==1]
-        diff = np.concatenate([diffl, diffd, diffr, diffu])
-        diffs.append(diff)
-
-    gt_diff = ((np.roll(data_list[0],1, axis=1)[1:-1,1:-1]-data_list[0][1:-1,1:-1])**2).flatten()
-
-    # MSE hist
-    plt.figure()
-    for x, n in zip(diffs, name_list):
-        plt.hist(x, label=n, alpha=0.5)
-    plt.legend()
-    plt.xlabel('MSE')
-    plt.ylabel('Freq')
-    plt.tight_layout()
-    plt.savefig('analysis/border_analysis_hist.png')
-
-
-
-
-    df = pd.DataFrame({'Name': ['GT', 'zeros', 'noise', 'bad', 'good'],
-                        'Volume fraction': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
-                        'KS value': [f"{ks_2samp(t, gt_diff)[0]:.2g}" for t in diffs],
-                        'p': [f"{ks_2samp(t, gt_diff)[-1]:.2g}" for t in diffs]})
-
-    df.index = df['Name']
-    df.drop("Name", axis=1, inplace=True)
-    print(df.head())
-    with open("analysis/border_analysis.tex", "w") as f:
-        l = df.to_latex(buf=f)
-
-
-def plot_border_analysis_specfic(tag1, tag2, c, rect_im, poly_im):
+def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, compare_all=True):
     print(f'Analysing border matching for {tag1} and {tag2}')
     size = 16
-    l = 96
     x1=c.mask_coords[2]-size
     y1=c.mask_coords[0]-size
+    x2=c.mask_coords[3]+size
+    y2=c.mask_coords[1]+size
+    l = x2-x1-2*size
     gt, _ = util.preprocess(c.data_path, c.image_type)
-    gt = gt.permute(1,2,0)[x1:x1+l,y1:y1+l].numpy()
+    gt = gt.permute(1,2,0)[x1:x2,y1:y2].numpy()
+    inpaint_zeros = gt.copy()
+    inpaint_zeros[size:-size,size:-size] = 0
+
+    inpaint_noise = gt.copy()
+    inpaint_noise[size:-size,size:-size] = np.random.uniform(size=(l,l,1))
 
     g_opt_im = gt.copy()
     z_opt_im = gt.copy()
     g_opt_im[size:-size, size:-size]=rect_im[0].permute(1,2,0)[size:-size,size:-size]
     z_opt_im[size:-size, size:-size]=poly_im[0].permute(1,2,0)[size:-size,size:-size]
-
     diffs = []
     data_list = [gt, g_opt_im, z_opt_im]
     name_list = ['Ground truth', 'G opt.', 'z opt.']
@@ -625,6 +495,7 @@ def plot_border_analysis_specfic(tag1, tag2, c, rect_im, poly_im):
     maskr[size:-size, -size-1:-size] = 1
     mask = maskl + maskr + masku + maskd
     mask = mask>0
+    # plot comparison of GT and two methods
     fig = plt.figure()
     gs = GridSpec(1,3)
     for d, a, n in zip(data_list, axes_list, name_list):
@@ -636,9 +507,11 @@ def plot_border_analysis_specfic(tag1, tag2, c, rect_im, poly_im):
         ax.imshow(d, cmap='gray')
         ax.set_title(n)
         ax.set_axis_off()
-        fig.savefig(f'analysis/{tag1}_{tag2}_border_analysis.png')
+        plt.tight_layout()
+        fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis_transparent.png', transparent=True)
+        fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis.png')
+        fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis.eps', transparent=True)
 
-    
     for j, (d, a, n) in enumerate(zip(data_list, axes_list, name_list)):
         dl = np.roll(d, 1, axis=1)
         dd = np.roll(d, -1, axis=0)
@@ -653,17 +526,6 @@ def plot_border_analysis_specfic(tag1, tag2, c, rect_im, poly_im):
 
     gt_diff = ((np.roll(data_list[0],1, axis=1)[1:-1,1:-1]-data_list[0][1:-1,1:-1])**2).flatten()
 
-    # MSE hist
-    # plt.figure()
-    # for x, n in zip(diffs, name_list):
-    #     plt.hist(x, label=n, alpha=0.5)
-    # plt.legend()
-    # plt.xlabel('MSE')
-    # plt.ylabel('Freq')
-    # plt.tight_layout()
-    # plt.savefig('analysis/mse_hist.png')
-
-
     df = pd.DataFrame({'Name': name_list,
                         'Mean MSE': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
                         'KS value': [f"{ks_2samp(t, gt_diff)[0]:.2g}" for t in diffs],
@@ -674,6 +536,67 @@ def plot_border_analysis_specfic(tag1, tag2, c, rect_im, poly_im):
     print(df.head())
     with open(f"analysis/{tag1}_{tag2}_border_analysis.tex", "w") as f:
         l = df.to_latex(buf=f)
+    
+    # plot comparison of GT, noise, zeros, bad and good inpaint
+    if compare_all:
+        diffs = []
+        z_unopt_im = gt.copy()
+        z_unopt_im[size:-size, size:-size]=poly_im_unopt[0].permute(1,2,0)[size:-size,size:-size]
+        data_list = [gt, inpaint_zeros, inpaint_noise, z_unopt_im, g_opt_im]
+        name_list = ['Ground truth', 'Zeros', 'Noise', 'Random seed', 'Optimised G']
+        axes_list = [[0],[0,1],[0,2],[1,1],[1,2]]
+
+        maskl = np.zeros_like(data_list[0])
+        maskr = np.zeros_like(data_list[0])
+        masku = np.zeros_like(data_list[0])
+        maskd = np.zeros_like(data_list[0])
+        maskl[size:-size,size:size+1] = 1
+        maskd[-size-1:-size, size:-size] = 1
+        masku[size:size+1, size:-size] = 1
+        maskr[size:-size, -size-1:-size] = 1
+        mask = maskl + maskr + masku + maskd
+        mask = mask>0
+        fig = plt.figure()
+        gs = GridSpec(2,3)
+        for d, a, n in zip(data_list, axes_list, name_list):
+            if len(a)>1:
+                x,y = a
+                ax = fig.add_subplot(gs[x,y])
+            else:
+                ax = fig.add_subplot(gs[:,a[0]])
+            ax.imshow(d, cmap='gray')
+            ax.set_title(n)
+            ax.set_axis_off()
+            plt.tight_layout()
+            fig.savefig('analysis/border_contiguity_analysis.png')
+            fig.savefig('analysis/border_contiguity_analysis_transparent.png', transparent=True)
+            fig.savefig('analysis/border_contiguity_analysis.eps', transparent=True)
+        
+        for j, (d, a, n) in enumerate(zip(data_list, axes_list, name_list)):
+            dl = np.roll(d, 1, axis=1)
+            dd = np.roll(d, -1, axis=0)
+            dr = np.roll(d, -1, axis=1)
+            du = np.roll(d, 1, axis=0)
+            diffl = ((d-dl)**2)[maskl==1]
+            diffd = ((d-dd)**2)[maskd==1]
+            diffr = ((d-dr)**2)[maskr==1]
+            diffu = ((d-du)**2)[masku==1]
+            diff = np.concatenate([diffl, diffd, diffr, diffu])
+            diffs.append(diff)
+
+        gt_diff = ((np.roll(data_list[0],1, axis=1)[1:-1,1:-1]-data_list[0][1:-1,1:-1])**2).flatten()
+
+        df = pd.DataFrame({'Name': ['Ground truth', 'Zeros', 'Noise', 'Random seed', 'Optimised G'],
+                            'Volume fraction': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
+                            'KS value': [f"{ks_2samp(t, gt_diff)[0]:.2g}" for t in diffs],
+                            'p': [f"{ks_2samp(t, gt_diff)[-1]:.2g}" for t in diffs]})
+
+        df.index = df['Name']
+        df.drop("Name", axis=1, inplace=True)
+        print(df.head())
+        with open("analysis/border_analysis.tex", "w") as f:
+            l = df.to_latex(buf=f)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -682,7 +605,7 @@ if __name__ == "__main__":
     parser.add_argument("-wass", default=False)
     parser.add_argument("-metric", default=False)
     parser.add_argument("-zspan", default=False)
-    parser.add_argument("-tpc", default=False)
+    parser.add_argument("-borders", default=False)
     parser.add_argument("-t1", "--tag1", default='empty')
     parser.add_argument("-t2", "--tag2", default='empty')
     
@@ -706,10 +629,10 @@ if __name__ == "__main__":
         z_span=True
     else:
         z_span=False
-    if args.tpc=='t':
-        tpc=True
+    if args.borders=='t':
+        borders=True
     else:
-        tpc=False
+        borders=False
     if args.metric=='load':
         metric=True
         load=True
@@ -720,6 +643,23 @@ if __name__ == "__main__":
         metric=False
         load=False
 
-    main(args.tag1, args.tag2, generate=generate, mse_plot=mse, wass_plot=wass, metric_compare=metric, load=load, z_span=z_span, tpc=tpc)
+    main(args.tag1, args.tag2, generate=generate, mse_plot=mse, wass_plot=wass, metric_compare=metric, load=load, z_span=z_span, borders=borders)
     # plot_vfs(tag='case1_rect', load=True)
     # main('train', True, 'test')
+
+# seed prop analysis
+#     net = netG()
+# s = 12
+# plt.close('all')
+# noise = torch.randn(1, 100, s, s)
+# baseline = net(noise)[0, 0]
+# print(baseline.shape)
+# for c in range(5):
+#     st = s//2-c
+#     noise[:,:,st:-st,st:-st] = torch.randn(1, 100, c*2, c*2)
+#     out = net(noise)[0, 0]
+#     mse = (out - baseline)**2
+#     mse = torch.sum(mse, dim=1)
+#     plt.plot(mse.detach(), label=c*2)
+# plt.legend()
+# plt.savefig('seed.png')
