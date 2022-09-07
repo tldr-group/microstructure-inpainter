@@ -21,8 +21,7 @@ class PolyWorker(QObject):
         self.overwrite = overwrite
         self.frames = frames
         self.quit_flag = False
-        self.opt_iters = 100
-        self.save_inpaint = self.opt_iters//self.frames
+        self.save_inpaint = self.c.opt_iters//self.frames
         self.opt_whilst_train = not c.cli
         # self.opt_whilst_train = False
 
@@ -187,7 +186,6 @@ class PolyWorker(QObject):
         print("TRAINING FINISHED")
 
     def inpaint(self, netG, save_path=None, border=False, device='cpu', opt_iters=1000):
-        print(f"Iterating for {opt_iters} iterations")
         img = preprocess(self.c.data_path, self.c.image_type)[0]
         if self.c.image_type =='n-phase':
             final_imgs = [torch.argmax(img, dim=0) for i in range(self.frames)]
@@ -266,35 +264,52 @@ class PolyWorker(QObject):
         return mse, raw, out
 
     def optimise_noise(self, lx, ly, img, mask, netG, device, opt_iters=1000):
-              
+        if self.verbose:
+            print(f'Optimisation params - iters: {opt_iters}, lr: {self.c.opt_lr}, kl_coeff: {self.c.opt_kl_coeff}')     
         target = img.to(device)
         for ch in range(self.c.n_phases):
             target[ch][mask==1] = -1
         # plt.imsave('test2.png', torch.cat([target.permute(1,2,0) for i in range(3)], -1).cpu().numpy())
         # plt.imsave('test.png', np.stack([mask for i in range(3)], -1))
-
+        bs = 1
         target = target.unsqueeze(0)
-        noise = [torch.nn.Parameter(torch.randn(1, self.c.nz, lx, ly, requires_grad=True, device=device))]
-        opt = torch.optim.Adam(params=noise, lr=0.005)
+        target = torch.tile(target, (bs, 1, 1,1))
+        multi = torch.ones_like(target)
+        for i in range(multi.shape[-2]):
+            for j in range(multi.shape[-1]):
+                multi[:,:,i,j] = max(abs(i-multi.shape[-2]//2+1),abs(j-multi.shape[-1]//2+1))
+        multi = abs(multi-multi.max())
+        noise = [torch.nn.Parameter(torch.randn(bs, self.c.nz, lx, ly, requires_grad=True, device=device))]
+        opt = torch.optim.Adam(params=noise, lr=self.c.opt_lr)
+        kl_loss = nn.KLDivLoss(reduction="batchmean")
         inpaints = []
+        mses = []
         if opt_iters>0:
             for i in range(opt_iters):
                 raw = netG(noise[0])
-                loss = (raw - target)**4
+                loss = (raw - target)**2
                 loss[target==-1] = 0
-                loss = loss.sum() / ((target!=-1).sum()*loss.shape[1]*loss.shape[0])
-                # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
+                loss_copy = loss.clone()
+                loss = loss.mean()
                 loss.backward()
                 opt.step()
+                mses.append(loss_copy.mean(dim=(1,2,3)).min().detach().cpu())
+                # kl divergence as part of loss to enforce random normal distribution
+                loss_kl = self.c.opt_kl_coeff*kl_loss(noise[0], torch.randn_like(noise[0]))
+                loss_kl.backward()
+                opt.step()
                 with torch.no_grad():
-                    noise[0] -= torch.tile(torch.mean(noise[0], dim=[1]), (1, self.c.nz,1,1))
-                    noise[0] /= torch.tile(torch.std(noise[0], dim=[1]), (1, self.c.nz,1,1))
+                    # normalise noise
+                    for b in range(bs):
+                        noise[0][b] -= torch.tile(torch.mean(noise[0][b], dim=[0]), (self.c.nz,1,1))
+                        noise[0][b] /= torch.tile(torch.std(noise[0][b], dim=[0]), (self.c.nz,1,1))
                 if i%self.save_inpaint==0:
                     if self.c.image_type == 'n-phase':
                         raw = torch.argmax(raw[0], dim=0)[16:-16, 16:-16].detach().cpu()
                     else:
                         raw = raw[0].permute(1,2,0)[16:-16, 16:-16].detach().cpu()
                     inpaints.append(raw)
+                        
         else:
             loss = torch.Tensor([0])
             raw = netG(noise[0])
@@ -302,9 +317,10 @@ class PolyWorker(QObject):
     
     def generate(self, save_path=None, border=False, opt_iters=None):
         if opt_iters==None:
-            opt_iters=self.opt_iters
+            opt_iters=self.c.opt_iters
         self.save_inpaint = opt_iters//self.frames
-        print("Generating new inpainted image")
+        if self.verbose:
+            print("Generating new inpainted image")
         device = torch.device(self.c.device_name if(
             torch.cuda.is_available() and self.c.ngpu > 0) else "cpu")
         netG = self.netG().to(device)
