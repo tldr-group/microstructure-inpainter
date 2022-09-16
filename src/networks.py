@@ -47,7 +47,7 @@ def make_nets(config, training=True):
                     x = F.relu_(x)
                 else:
                     x = conv(x)
-                    x = F.interpolate(x, [x.shape[-2]*2+2, x.shape[-1]*2+2], mode='bilinear')
+                    x = F.interpolate(x, [x.shape[-2]*2+2, x.shape[-1]*2+2], mode='bilinear',align_corners=False)
                     x = bn(x)
                     x = F.relu_(x)
                 count+=1

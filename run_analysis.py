@@ -23,9 +23,9 @@ prop_cycler = cycler(color=global_colours)
 font = {'size': 8}
 matplotlib.rc('font', **font)
 
-def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=False, borders=False):
+def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=False, borders=False, seed_prop=False):
     
-    if generate or metric_compare or z_span or (borders and tag1 != 'empty'):
+    if generate or metric_compare or z_span or seed_prop or (borders and tag1 != 'empty'):
 
         c = Config(tag1)
         c.load()
@@ -95,10 +95,30 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             c.mask_coords = (x1, x2, y1, y2)
             overwrite = False
             training_imgs, nc = util.preprocess(c.data_path, c.image_type)
-            mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
+            mask, unmasked, img_size, seed, c = util.make_mask(training_imgs, c)
             netD, netG = networks.make_nets(c, overwrite)
             worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
             worker.verbose = True
+            if seed_prop:
+                netG = worker.netG()
+                s = 20
+                plt.close('all')
+                noise = torch.randn(1, 100, s, s)
+                print(netG(torch.randn(1, 100, 4, 4)).shape)
+                baseline = netG(noise)[0, 0]
+                print(baseline.shape)
+                for c in range(10):
+                    st = s//2-c
+                    noise[:,:,st:-st,st:-st] = torch.randn(1, 100, c*2, c*2)
+                    out = netG(noise)[0, 0]
+                    mse = (out - baseline)**2
+                    mse = torch.sum(mse, dim=1)
+                    print((mse>0.005).sum(), c*2)
+                    plt.plot(mse.detach(), label=c*2)
+                plt.legend()
+                plt.grid()
+                plt.xticks(np.arange(0, len(mse), 2))
+                plt.savefig('analysis/seed.png')
             if generate:
                 axRectAll = fig.add_subplot(gs[0,1:])
                 axRectAll.annotate('G opt.', xy=(1.15, 0.5), xytext=(0, 0),
@@ -642,6 +662,7 @@ if __name__ == "__main__":
     parser.add_argument("-metric", default=False)
     parser.add_argument("-zspan", default=False)
     parser.add_argument("-borders", default=False)
+    parser.add_argument("-seed", default=False)
     parser.add_argument("-t1", "--tag1", default='empty')
     parser.add_argument("-t2", "--tag2", default='empty')
     
@@ -669,6 +690,10 @@ if __name__ == "__main__":
         borders=True
     else:
         borders=False
+    if args.seed=='t':
+        seed_prop=True
+    else:
+        seed_prop=False
     if args.metric=='load':
         metric=True
         load=True
@@ -679,23 +704,7 @@ if __name__ == "__main__":
         metric=False
         load=False
 
-    main(args.tag1, args.tag2, generate=generate, metric_compare=metric, load=load, z_span=z_span, borders=borders)
+    main(args.tag1, args.tag2, generate=generate, metric_compare=metric, load=load, z_span=z_span, borders=borders, seed_prop=seed_prop)
     # plot_vfs(tag='case1_rect', load=True)
     # main('train', True, 'test')
 
-# seed prop analysis
-#     net = netG()
-# s = 12
-# plt.close('all')
-# noise = torch.randn(1, 100, s, s)
-# baseline = net(noise)[0, 0]
-# print(baseline.shape)
-# for c in range(5):
-#     st = s//2-c
-#     noise[:,:,st:-st,st:-st] = torch.randn(1, 100, c*2, c*2)
-#     out = net(noise)[0, 0]
-#     mse = (out - baseline)**2
-#     mse = torch.sum(mse, dim=1)
-#     plt.plot(mse.detach(), label=c*2)
-# plt.legend()
-# plt.savefig('seed.png')

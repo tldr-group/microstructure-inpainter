@@ -134,7 +134,7 @@ def preprocess(data_path, imtype, load=True):
         if imtype == 'n-phase':
             phases = np.unique(img)
             if len(phases) > 10:
-                raise AssertionError('Image not one hot encoded.')
+                raise AssertionError('Running in n-phase mode. Image exceeds max phases. Try running in colour or grayscale')
             x, y = img.shape
             img_oh = torch.zeros(len(phases), x, y)
             for i, ph in enumerate(phases):
@@ -185,15 +185,11 @@ def make_mask(training_imgs, c):
 
     # seed for size of inpainting region
     seed = calculate_seed_from_size(torch.tensor([xdiff, ydiff]).to(int), c)
-    # add 1 seed to each side to make the MSE region, the total G region
+    # add 2 seed to each side to make the MSE region, the total G region
     img_seed = seed+4
     G_out_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
     # THIS IS WHERE WE TELL D WHAT SIZE TO BE
-    # Discriminated region will be half the size of the minimum length of the inpainting region
-    # D_size_dim = int(torch.div(mask_size.min(),64, rounding_mode='floor'))*16
-    D_size_dim = G_out_size[0].item()
-    # D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
     D_seed = img_seed
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
@@ -213,34 +209,7 @@ def make_mask(training_imgs, c):
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
     c.D_seed_x = D_seed[0].item()
     c.D_seed_y = D_seed[1].item()
-    return mask, unmasked, D_size_dim, G_out_size, img_seed, c
-
-def update_discriminator(c):
-    out = c.dl
-    layer = 0
-    dk = [4]
-    dp = [1]
-    ds = [2]
-    df = [c.n_phases]
-    while out != 1:
-        out_check = int(np.floor((out+2*dp[layer]-dk[layer])/ds[layer]+1))
-        if out_check>1:
-            out = out_check
-            dk.append(4)
-            ds.append(2)
-            dp.append(1)
-            df.append(int(np.min([2**(layer+6), 1024])))
-            layer += 1
-        elif out_check<1:
-            dp[layer] = int(round((2+dk[layer]-out)/2))
-        else:
-            out = out_check
-    df.append(1)
-    c.df = df
-    c.dk = dk
-    c.ds = ds
-    c.dp = dp
-    return c
+    return mask, unmasked, G_out_size, img_seed, c
 
 def update_pixmap_rect(raw, img, c, save_path=None, border=False):
     # fig, ax = plt.subplots(211)
@@ -288,7 +257,7 @@ def update_pixmap_rect(raw, img, c, save_path=None, border=False):
         return pm
     
 
-def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
+def calc_gradient_penalty(netD, real_data, fake_data, batch_size, lx, ly, device, gp_lambda, nc):
     """[summary]
 
     :param netD: [description]
@@ -313,7 +282,7 @@ def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_
     alpha = torch.rand(batch_size, 1)
     alpha = alpha.expand(batch_size, int(
         real_data.nelement() / batch_size)).contiguous()
-    alpha = alpha.view(batch_size, nc, l, l)
+    alpha = alpha.view(batch_size, nc, lx, ly)
     alpha = alpha.to(device)
 
     interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
@@ -339,7 +308,7 @@ def batch_real_poly(img, l, bs, real_seeds):
         data[i] = img[:, x:x+l, y:y+l]
     return data
 
-def batch_real(img, l, bs, mask_coords):
+def batch_real(img, lx, ly, bs, mask_coords):
     """[summary]
     :param training_imgs: [description]
     :type training_imgs: [type]
@@ -348,12 +317,12 @@ def batch_real(img, l, bs, mask_coords):
     """
     x1, x2, y1, y2 = mask_coords
     n_ph, x_max, y_max = img.shape
-    data = torch.zeros((bs, n_ph, l, l))
+    data = torch.zeros((bs, n_ph, lx, ly))
     for i in range(bs):
-        x, y = torch.randint(x_max - l, (1,)), torch.randint(y_max - l, (1,))
-        while (x1<x+l and x1>x-l) and (y1<y+l and y1>y-l):
-            x, y = torch.randint(x_max - l, (1,)), torch.randint(y_max - l, (1,))
-        data[i] = img[:, x:x+l, y:y+l]
+        x, y = torch.randint(x_max - lx, (1,)), torch.randint(y_max - ly, (1,))
+        while (x1<x+lx and x1>x-lx) and (y1<y+ly and y1>y-ly):
+            x, y = torch.randint(x_max - lx, (1,)), torch.randint(y_max - ly, (1,))
+        data[i] = img[:, x:x+lx, y:y+ly]
     return data
 
 def pixel_wise_loss(fake_img, real_img, unmasked, mode='mse', device=None):
@@ -416,16 +385,20 @@ def init_noise(batch_size, nz, c, device):
     noise.requires_grad = True
     return noise
 
-def make_noise(noise, device, mask_noise=False, delta=1):
+def make_noise(noise, device, mask_noise=False, delta=[1,1]):
     # zeros in mask are fixed, ones are random
     mask = torch.zeros_like(noise).to(device)
     _, _, x, y = mask.shape
+    dx = delta[0]//2
+    dy = delta[1]//2
     # 
     if mask_noise:
-        if delta>0:
-            mask[:,:,x//2-delta:x//2+delta,y//2-delta:y//2+delta] = 1
-        elif delta==0:
-            mask[:,:,x//2,y//2] = 1
+        if dx>0 and dy>0:
+            mask[:,:,x//2-dx:x//2+dx,y//2-dy:y//2+dy] = 1
+        elif dx==0:
+            mask[:,:,x//2,y//2-dy:y//2+dy] = 1
+        elif dy==0:
+            mask[:,:,x//2-dx:x//2+dx,y//2] = 1
         rand = torch.randn_like(noise).to(device)*mask
         noise = noise*(mask==0)+rand
     else:

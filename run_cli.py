@@ -40,9 +40,9 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             overwrite = False
         # Pre-process the data and adjust the nets
         training_imgs, nc = util.preprocess(c.data_path, c.image_type)
-        mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
+        mask, unmasked, img_size, seed, c = util.make_mask(training_imgs, c)
         c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
-        c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
+        c.lx, c.ly = int(img_size[0].item()), int(img_size[1].item())
         if c.image_type == 'n-phase':
             c.n_phases = nc
         elif c.image_type == 'colour':

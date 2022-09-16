@@ -23,6 +23,7 @@ class PolyWorker(QObject):
         self.quit_flag = False
         self.save_inpaint = self.c.opt_iters//self.frames
         self.opt_whilst_train = not c.cli
+        self.verbose = not c.cli
         # self.opt_whilst_train = False
 
 
@@ -116,7 +117,7 @@ class PolyWorker(QObject):
             out_real = netD(real_data).mean()
             # train on fake images
             out_fake = netD(fake_data).mean()
-            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, Lambda, nc)
+            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, l, device, Lambda, nc)
             wass = out_fake - out_real
             # Compute the discriminator loss and backprop
             disc_cost = wass + gradient_penalty
@@ -152,7 +153,7 @@ class PolyWorker(QObject):
                     end_overall = time.time()
                     t = end_overall-start_overall
                 if self.opt_whilst_train:
-                    mse, img, inpaint = self.inpaint(netG, device=device, opt_iters=self.opt_iters)
+                    mse, img, inpaint = self.inpaint(netG, device=device, opt_iters=self.c.opt_iters)
 
                     if c.cli:
                         print(f'Iter: {i}, Time: {t:.1f}, MSE: {mse:.2g}, Wass: {abs(wass.item()):.2g}')
@@ -201,14 +202,14 @@ class PolyWorker(QObject):
             x0, y0, x1, y1 = (int(i) for i in rect)
             w, h = x1-x0, y1-y0
             w_init, h_init = w,h
-            # x1 += 32 - w%32
-            # y1 += 32 - h%32
-            w, h = x1-x0, y1-y0
+            lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
+            w, h = calculate_size_from_seed(torch.tensor([lx,ly]), self.c)
+            x1 = x0 + w
+            y1 = y0 + h
             im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
             mask_crop = self.mask[x0-16:x1+16, y0-16:y1+16]
-            c, w, h = im_crop.shape
-            lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
-            inpaints, mse, raw = self.optimise_noise(lx, ly, im_crop, mask_crop, netG, device, opt_iters=opt_iters)
+            # lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
+            inpaints, mse, raw = self.optimise_noise(lx+4, ly+4, im_crop, mask_crop, netG, device, opt_iters=opt_iters)
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
         for i, final_img in enumerate(final_imgs):
@@ -226,6 +227,7 @@ class PolyWorker(QObject):
                 elif self.c.image_type=='grayscale':
                     out = np.concatenate([final_img for i in range(3)], -1)
                     plt.imsave(f'data/temp/temp{i}.png', out)
+        plt.imsave(f'data/temp/temp.png', out)
         if save_path:
             fig, ax = plt.subplots()
             final_img = final_imgs[-1]

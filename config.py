@@ -76,7 +76,10 @@ class ConfigPoly(Config):
         super(ConfigPoly, self).__init__(tag)
         self.frames = 100
         # optimisation parameters
-        self.opt_iters = 10000
+        if self.cli:
+            self.opt_iters = 10000
+        else:
+            self.opt_iters = 1000
         self.opt_lr = 0.001
         # if self.image_type=='colour':
         self.opt_kl_coeff = 0.00001
