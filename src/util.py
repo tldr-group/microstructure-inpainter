@@ -186,14 +186,15 @@ def make_mask(training_imgs, c):
     # seed for size of inpainting region
     seed = calculate_seed_from_size(torch.tensor([xdiff, ydiff]).to(int), c)
     # add 1 seed to each side to make the MSE region, the total G region
-    img_seed = seed+2
+    img_seed = seed+4
     G_out_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
     # THIS IS WHERE WE TELL D WHAT SIZE TO BE
     # Discriminated region will be half the size of the minimum length of the inpainting region
     # D_size_dim = int(torch.div(mask_size.min(),64, rounding_mode='floor'))*16
     D_size_dim = G_out_size[0].item()
-    D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
+    # D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
+    D_seed = img_seed
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
     x1_bound, x2_bound, y1_bound, y2_bound = xmid-G_out_size[0].item()//2, xmid+G_out_size[0].item()//2, ymid-G_out_size[1].item()//2, ymid+G_out_size[1].item()//2
