@@ -64,8 +64,8 @@ class PolyWorker(QObject):
         cudnn.benchmark = True
 
         # Get train params
-        l, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
-
+        l, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, nz, = c.get_train_params()
+        lz = calculate_seed_from_size(torch.tensor([l]),c)
         # Read in data
         training_imgs, nc = preprocess(c.data_path, c.image_type)
 
@@ -170,7 +170,11 @@ class PolyWorker(QObject):
                     df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
                     df.to_pickle(f'runs/{tag}/metrics.pkl')
                 else:
-                    print(f'Iter: {i}, Time: {t:.1f}')
+                    print(f'Iter: {i}, Time: {t:.1f}, Wass: {abs(wass.item()):.2g}')
+                    if c.wandb:
+                        img = fake_data[0].permute(1,2,0).detach()
+                        wandb.log({'wass':wass.item(), 'gp': gradient_penalty.item(), 
+                        'raw out': wandb.Image(img.cpu().numpy())}, step=i)
 
                 
 
@@ -203,10 +207,7 @@ class PolyWorker(QObject):
             im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
             mask_crop = self.mask[x0-16:x1+16, y0-16:y1+16]
             c, w, h = im_crop.shape
-            if self.c.conv_resize:
-                lx, ly = int(w/16), int(h/16)
-            else:
-                lx, ly = int(w/32) + 2, int(h/32) + 2
+            lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
             inpaints, mse, raw = self.optimise_noise(lx, ly, im_crop, mask_crop, netG, device, opt_iters=opt_iters)
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
@@ -330,7 +331,6 @@ class PolyWorker(QObject):
             netG = nn.DataParallel(netG, list(range(self.c.ngpu))).to(device)
         netG.load_state_dict(torch.load(f"{self.c.path}/Gen.pt"))
         netD.load_state_dict(torch.load(f"{self.c.path}/Disc.pt"))
-
         mse, raw, _ = self.inpaint(netG, save_path=save_path, border=border, device=device, opt_iters=opt_iters)
 
         return raw

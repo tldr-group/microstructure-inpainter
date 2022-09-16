@@ -46,7 +46,16 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             # save ground truth
             fig = plt.figure()
             # fig.suptitle(f"{tag1} - {tag2}")
-            gs = GridSpec(2,3)
+            if tag1 =='empty' or tag2 == 'empty':
+                gs = GridSpec(1,3)
+                if tag1 == 'empty':
+                    tag2_index = 0
+                else:
+                    tag1_index = 0
+            else:
+                gs = GridSpec(2,3)
+                tag1_index = 0
+                tag2_index = 1
             axGT = fig.add_subplot(gs[:,0])
             axGT.set_title("Ground truth")
             # ax.imshow(np.stack([img for i in range(3)], -1))
@@ -80,173 +89,176 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             
 
         # RECT
+        if tag1 != 'empty':
+            c = Config(tag1)
+            c.load()
+            c.mask_coords = (x1, x2, y1, y2)
+            overwrite = False
+            training_imgs, nc = util.preprocess(c.data_path, c.image_type)
+            mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
+            netD, netG = networks.make_nets(c, overwrite)
+            worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
+            worker.verbose = True
+            if generate:
+                axRectAll = fig.add_subplot(gs[0,1:])
+                axRectAll.annotate('G opt.', xy=(1.15, 0.5), xytext=(0, 0),
+                        xycoords='axes fraction', textcoords='offset points',
+                        size='large', ha='center', va='baseline')
+                axRectAll.set_axis_off()
+                for i in range(2):
+                    axRECT = fig.add_subplot(gs[tag1_index,i+1])
+                    img = worker.generate(save_path=f'analysis/{tag1}_{i}', border=True)
+                    p = util.post_process(img,c)[0].permute(1,2,0).numpy()
+                    img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0))
+                    axRECT.imshow(img, cmap='gray')
+                    axRECT.set_axis_off()
+                    axRECT.set_title(f'Seed {i+1}')
+                fig.tight_layout()
+                fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
+                fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', transparent=True)
+                fig.savefig(f'analysis/{tag1}_{tag2}.eps', transparent=True)
 
-        c = Config(tag1)
-        c.load()
-        c.mask_coords = (x1, x2, y1, y2)
-        overwrite = False
-        training_imgs, nc = util.preprocess(c.data_path, c.image_type)
-        mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
-        netD, netG = networks.make_nets_rect(c, overwrite)
-        worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
-        worker.verbose = True
-        if generate:
-            axRectAll = fig.add_subplot(gs[0,1:])
-            axRectAll.annotate('G opt.', xy=(1.15, 0.5), xytext=(0, 0),
-                    xycoords='axes fraction', textcoords='offset points',
-                    size='large', ha='center', va='baseline')
-            axRectAll.set_axis_off()
-            for i in range(2):
-                axRECT = fig.add_subplot(gs[0,i+1])
-                img = worker.generate(save_path=f'analysis/{tag1}_{i}', border=True)
-                p = util.post_process(img,c)[0].permute(1,2,0).numpy()
-                img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0))
-                axRECT.imshow(img, cmap='gray')
-                axRECT.set_axis_off()
-                axRECT.set_title(f'Seed {i+1}')
-            fig.tight_layout()
-            fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
-
-        if metric_compare and not load:
-            rect_list_rand = []
-            rect_list_fixed = []
-            for i in range(samples):
-                for ls, delta in zip([rect_list_rand, rect_list_fixed],['rand',None]):
-                    im = worker.generate(delta=delta)[0].cpu()
-                    im = (torch.argmax(im, dim=0))
-                    x,y = im.shape
-                    im = im[16:-16,16:-16,]
-                    ph = np.unique(im)
-                    vfs = ()
-                    for p in ph:
-                        l = im==p
-                        vfs = vfs + (l.float().mean().item(),)
-                    ls.append(vfs)
-
-        if borders:
-            rect_im = worker.generate()
-        # POLY
-
-        c = ConfigPoly(tag2)
-        c.load()
-        # c.data_path = path
-        # c.mask_coords = tuple([x1,x2,y1,y2])
-        # c.image_type = image_type
-        # c.cli = True
-        x1,x2,y1,y2 = c.mask_coords
-        image_type = c.image_type
-        img = plt.imread(c.data_path)
-        if image_type == 'n-phase':
-            try:
-                h, w = img.shape
-            except:
-                h, w, _ = img.shape
-        else:
-            h, w, _ = img.shape
-        new_polys = [[(x1,y1), (x1, y2), (x2,y2), (x2, y1)]]
-        x, y = np.meshgrid(np.arange(w), np.arange(h)) # make a canvas with coordinates
-        x, y = x.flatten(), y.flatten()
-        points = np.vstack((x,y)).T
-        mask = np.zeros((h,w))
-        poly_rects = []
-        for poly in new_polys: 
-            p = Path(poly) # make a polygon
-            grid = p.contains_points(points)
-            mask += grid.reshape(h, w)
-            xs, ys = [point[1] for point in poly], [point[0] for point in poly]
-            poly_rects.append((np.min(xs), np.min(ys), np.max(xs),np.max(ys)))
-        seeds_mask = np.zeros((h,w))
-        for x in range(c.l):
-            for y in range(c.l):
-                seeds_mask += np.roll(np.roll(mask, -x, 0), -y, 1)
-        seeds_mask[seeds_mask>1]=1
-        real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
-        overwrite = False
-        if c.image_type == 'n-phase':
-            c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
-            c.conv_resize=True
-            
-        elif c.image_type == 'colour':
-            c.n_phases = 3
-            c.conv_resize = True
-        else:
-            c.n_phases = 1
-        c.image_type = c.image_type
-        netD, netG = networks.make_nets_poly(c, overwrite)
-        worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
-        worker.verbose = True
-        if z_span:
-            plot_z_span(worker, tag2)
-            
-
-        if generate:
-            axPolyAll = fig.add_subplot(gs[1,1:])
-            axPolyAll.annotate('z opt.', xy=(1.15, 0.5), xytext=(0, 0),
-                    xycoords='axes fraction', textcoords='offset points',
-                    size='large', ha='center', va='baseline')
-            axPolyAll.set_axis_off()
-            for i in range(2):
-                axPOLY = fig.add_subplot(gs[1,i+1])
-                img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=10000)
-                img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0).detach())
-                axPOLY.imshow(img, cmap='gray')
-                axPOLY.set_axis_off()
-                # axPOLY.set_title(f'Seed {i+1}')
-            fig.tight_layout()
-            plt.subplots_adjust(hspace=0)
-            fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
-            fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', transparent=True)
-            fig.savefig(f'analysis/{tag1}_{tag2}.eps', transparent=True)
-
-        if metric_compare:
-            if not load:
-                poly_list_unopt = []
-                poly_list_opt = []
+            if metric_compare and not load:
+                rect_list_rand = []
+                rect_list_fixed = []
                 for i in range(samples):
-                    for opt_iters in [0,10000]:
-                        im = worker.generate(opt_iters=opt_iters)[0].detach().cpu()
+                    for ls, delta in zip([rect_list_rand, rect_list_fixed],['rand',None]):
+                        im = worker.generate(delta=delta)[0].cpu()
                         im = (torch.argmax(im, dim=0))
                         x,y = im.shape
-                        im = im[(x-lx)//2:(x+lx)//2,(y-ly)//2:(y+ly)//2,]
+                        im = im[16:-16,16:-16,]
                         ph = np.unique(im)
                         vfs = ()
                         for p in ph:
-                            i = im==p
-                            vfs = vfs + (i.float().mean().item(),)
-                        if opt_iters>0:
-                            poly_list_opt.append(vfs)
-                        else:
-                            poly_list_unopt.append(vfs)
+                            l = im==p
+                            vfs = vfs + (l.float().mean().item(),)
+                        ls.append(vfs)
+
+            if borders:
+                rect_im = worker.generate()
+        if tag2 != 'empty':
+            # POLY
+
+            c = ConfigPoly(tag2)
+            c.load()
+            # c.data_path = path
+            # c.mask_coords = tuple([x1,x2,y1,y2])
+            # c.image_type = image_type
+            # c.cli = True
+            x1,x2,y1,y2 = c.mask_coords
+            image_type = c.image_type
+            img = plt.imread(c.data_path)
+            if image_type == 'n-phase':
+                try:
+                    h, w = img.shape
+                except:
+                    h, w, _ = img.shape
+            else:
+                h, w, _ = img.shape
+            new_polys = [[(x1,y1), (x1, y2), (x2,y2), (x2, y1)]]
+            x, y = np.meshgrid(np.arange(w), np.arange(h)) # make a canvas with coordinates
+            x, y = x.flatten(), y.flatten()
+            points = np.vstack((x,y)).T
+            mask = np.zeros((h,w))
+            poly_rects = []
+            for poly in new_polys: 
+                p = Path(poly) # make a polygon
+                grid = p.contains_points(points)
+                mask += grid.reshape(h, w)
+                xs, ys = [point[1] for point in poly], [point[0] for point in poly]
+                poly_rects.append((np.min(xs), np.min(ys), np.max(xs),np.max(ys)))
+            seeds_mask = np.zeros((h,w))
+            for x in range(c.l):
+                for y in range(c.l):
+                    seeds_mask += np.roll(np.roll(mask, -x, 0), -y, 1)
+            seeds_mask[seeds_mask>1]=1
+            real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
+            overwrite = False
+            if c.image_type == 'n-phase':
+                c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
+                c.conv_resize=True
+                
+            elif c.image_type == 'colour':
+                c.n_phases = 3
+                c.conv_resize = True
+            else:
+                c.n_phases = 1
+            c.image_type = c.image_type
+            netD, netG = networks.make_nets(c, overwrite)
+            worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
+            worker.verbose = True
+            if z_span:
+                plot_z_span(worker, tag2)
+                
+
+            if generate:
+                axPolyAll = fig.add_subplot(gs[1,1:])
+                axPolyAll.annotate('z opt.', xy=(1.15, 0.5), xytext=(0, 0),
+                        xycoords='axes fraction', textcoords='offset points',
+                        size='large', ha='center', va='baseline')
+                axPolyAll.set_axis_off()
+                for i in range(2):
+                    axPOLY = fig.add_subplot(gs[tag2_index,i+1])
+                    img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=10000)
+                    img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0).detach())
+                    axPOLY.imshow(img, cmap='gray')
+                    axPOLY.set_axis_off()
+                    # axPOLY.set_title(f'Seed {i+1}')
+                fig.tight_layout()
+                plt.subplots_adjust(hspace=0)
+                fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
+                fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', transparent=True)
+                fig.savefig(f'analysis/{tag1}_{tag2}.eps', transparent=True)
+
+            if metric_compare:
+                if not load:
+                    poly_list_unopt = []
+                    poly_list_opt = []
+                    for i in range(samples):
+                        for opt_iters in [0,10000]:
+                            im = worker.generate(opt_iters=opt_iters)[0].detach().cpu()
+                            im = (torch.argmax(im, dim=0))
+                            x,y = im.shape
+                            im = im[(x-lx)//2:(x+lx)//2,(y-ly)//2:(y+ly)//2,]
+                            ph = np.unique(im)
+                            vfs = ()
+                            for p in ph:
+                                i = im==p
+                                vfs = vfs + (i.float().mean().item(),)
+                            if opt_iters>0:
+                                poly_list_opt.append(vfs)
+                            else:
+                                poly_list_unopt.append(vfs)
 
 
-                vfs_dict = {}
-                type_list = ['Real', 'G rand', 'G fixed', 'z opt', 'z unopt']
-                labels = []
-                data = []
-                for i, ls in enumerate([real_list, rect_list_rand, rect_list_fixed, poly_list_opt, poly_list_unopt]):
-                    label = type_list[i]
-                    vfs_dict[label] = {}
-                    if label =='Real':
-                        vfs_dict['Real']['Total'] = {}
-                    for j, ph in enumerate(['Phase 1', "Phase 2", "Phase 3"]):
-                        vfs_dict[label][ph] = [a[j] for a in ls]
-                        labels.append(label+' '+ph)
-                        data.append([a[j] for a in ls])
-                        if ls == real_list:
-                            vfs_dict['Real']['Total'][ph] = real_vfs[j]
-                with open(f'analysis/vfs_{tag1}_{tag2}_analysis.json', 'w') as fp:
-                            json.dump(vfs_dict, fp)
-            if load:
-                data = []
-                labels = []
-                colours = []
-            plot_vfs(tag1, tag2, data=data, labels=labels, load=load)
-        
-        if borders:
-            poly_im = worker.generate()
-            poly_im_unopt = worker.generate(opt_iters=0)
-            # plot_border_analysis_specfic(tag1, tag2, c,rect_im.detach().cpu(),poly_im.detach().cpu())
-            border_contiguity_analysis(tag1, tag2, c, rect_im.detach().cpu(), poly_im.detach().cpu(), poly_im_unopt.detach().cpu())
+                    vfs_dict = {}
+                    type_list = ['Real', 'G rand', 'G fixed', 'z opt', 'z unopt']
+                    labels = []
+                    data = []
+                    for i, ls in enumerate([real_list, rect_list_rand, rect_list_fixed, poly_list_opt, poly_list_unopt]):
+                        label = type_list[i]
+                        vfs_dict[label] = {}
+                        if label =='Real':
+                            vfs_dict['Real']['Total'] = {}
+                        for j, ph in enumerate(['Phase 1', "Phase 2", "Phase 3"]):
+                            vfs_dict[label][ph] = [a[j] for a in ls]
+                            labels.append(label+' '+ph)
+                            data.append([a[j] for a in ls])
+                            if ls == real_list:
+                                vfs_dict['Real']['Total'][ph] = real_vfs[j]
+                    with open(f'analysis/vfs_{tag1}_{tag2}_analysis.json', 'w') as fp:
+                                json.dump(vfs_dict, fp)
+                if load:
+                    data = []
+                    labels = []
+                    colours = []
+                plot_vfs(tag1, tag2, data=data, labels=labels, load=load)
+            
+            if borders:
+                poly_im = worker.generate()
+                poly_im_unopt = worker.generate(opt_iters=0)
+                # plot_border_analysis_specfic(tag1, tag2, c,rect_im.detach().cpu(),poly_im.detach().cpu())
+                border_contiguity_analysis(tag1, tag2, c, rect_im.detach().cpu(), poly_im.detach().cpu(), poly_im_unopt.detach().cpu())
 
 def inpaint(gt, im):
     gt[16:-16,16:-16] = im[16:-16, 16:-16]
@@ -359,6 +371,22 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
     phases = []
     key_list = loaded[list(loaded.keys())[1]].keys()
 
+    # KS test on each phase
+    ks_test_res = {}
+    gt = loaded['Real']
+    for m in loaded.keys():
+        ks_test_res[m] = {}
+        for p in loaded[m].keys():
+            if p!='Total':
+                p_val = ks_2samp(gt[p], loaded[m][p])[-1]
+                ks_test_res[m][p] = f'{p_val:.2g}'
+    with open(f'analysis/vf_ks_{tag1}_{tag2}.json', 'w') as f:
+        json.dump(ks_test_res, f)
+    ks_df = pd.DataFrame(ks_test_res)
+    with open(f"analysis/vf_ks_{tag1}_{tag2}.tex", "w") as f:
+        l = ks_df.to_latex(buf=f, bold_rows=True,label='vf_ks', index=False)
+
+
     for j, k2 in enumerate(key_list):
         labels.append('Real')
         data_r.append(loaded['Real'][k2])
@@ -446,10 +474,11 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
 
     patches = []
     phs = []
+    phs = ['pore', 'metal', 'ceramic']
 
     for p, c in zip(pd.unique(phases),pd.unique(colours)):
         patches.append(mpatches.Patch(color=c, alpha=1))
-        phs.append(p)
+        # phs.append(p)
     ax.legend(patches, phs)
     ax.set_xticks(np.arange(1,len(labels)+1))
     ax.set_xticklabels(labels)
@@ -475,6 +504,13 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
 
     inpaint_noise = gt.copy()
     inpaint_noise[size:-size,size:-size] = np.random.uniform(size=(l,l,1))
+
+    # rect_im = util.post_process(rect_im, c)
+    # poly_im = util.post_process(poly_im, c)
+    rect_im = torch.argmax(rect_im, dim=1)
+    poly_im = torch.argmax(poly_im, dim=1)
+    rect_im = torch.nn.functional.one_hot(rect_im).permute(0, 3, 1, 2)
+    poly_im = torch.nn.functional.one_hot(poly_im).permute(0, 3, 1, 2)
 
     g_opt_im = gt.copy()
     z_opt_im = gt.copy()
@@ -527,24 +563,24 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
     gt_diff = ((np.roll(data_list[0],1, axis=1)[1:-1,1:-1]-data_list[0][1:-1,1:-1])**2).flatten()
 
     df = pd.DataFrame({'Name': name_list,
-                        'Mean MSE': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
+                        # 'Mean MSE': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
                         'KS value': [f"{ks_2samp(t, gt_diff)[0]:.2g}" for t in diffs],
                         'p': [f"{ks_2samp(t, gt_diff)[-1]:.2g}" for t in diffs]})
 
-    df.index = df['Name']
-    df.drop("Name", axis=1, inplace=True)
+    # df.index = df['Name']
+    # df.drop("Name", axis=1, inplace=True)
     print(df.head())
     with open(f"analysis/{tag1}_{tag2}_border_analysis.tex", "w") as f:
-        l = df.to_latex(buf=f)
+        l = df.to_latex(buf=f, bold_rows=True,label='contiguity_validation', index=False)
     
     # plot comparison of GT, noise, zeros, bad and good inpaint
     if compare_all:
         diffs = []
         z_unopt_im = gt.copy()
         z_unopt_im[size:-size, size:-size]=poly_im_unopt[0].permute(1,2,0)[size:-size,size:-size]
-        data_list = [gt, inpaint_zeros, inpaint_noise, z_unopt_im, g_opt_im]
-        name_list = ['Ground truth', 'Zeros', 'Noise', 'Random seed', 'Optimised G']
-        axes_list = [[0],[0,1],[0,2],[1,1],[1,2]]
+        data_list = [gt, inpaint_zeros, inpaint_noise, z_unopt_im]
+        name_list = ['Ground truth', 'Zeros', 'Noise', 'Random seed']
+        axes_list = [[0,0],[0,1],[1,0],[1,1]]
 
         maskl = np.zeros_like(data_list[0])
         maskr = np.zeros_like(data_list[0])
@@ -557,7 +593,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
         mask = maskl + maskr + masku + maskd
         mask = mask>0
         fig = plt.figure()
-        gs = GridSpec(2,3)
+        gs = GridSpec(2,2)
         for d, a, n in zip(data_list, axes_list, name_list):
             if len(a)>1:
                 x,y = a
@@ -586,16 +622,16 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
 
         gt_diff = ((np.roll(data_list[0],1, axis=1)[1:-1,1:-1]-data_list[0][1:-1,1:-1])**2).flatten()
 
-        df = pd.DataFrame({'Name': ['Ground truth', 'Zeros', 'Noise', 'Random seed', 'Optimised G'],
-                            'Volume fraction': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
+        df = pd.DataFrame({'Name': ['Ground truth', 'Zeros', 'Noise', 'Random seed'],
+                            # 'Volume fraction': [f'{np.mean(t):.2g} ± {np.std(t):.2g}' for t in diffs],
                             'KS value': [f"{ks_2samp(t, gt_diff)[0]:.2g}" for t in diffs],
                             'p': [f"{ks_2samp(t, gt_diff)[-1]:.2g}" for t in diffs]})
 
-        df.index = df['Name']
-        df.drop("Name", axis=1, inplace=True)
+        # df.index = df['Name']
+        # df.drop("Name", axis=1, inplace=True)
         print(df.head())
         with open("analysis/border_analysis.tex", "w") as f:
-            l = df.to_latex(buf=f)
+            l = df.to_latex(buf=f, bold_rows=True,label='contiguity_validation', index=False)
 
 
 if __name__ == "__main__":
@@ -643,7 +679,7 @@ if __name__ == "__main__":
         metric=False
         load=False
 
-    main(args.tag1, args.tag2, generate=generate, mse_plot=mse, wass_plot=wass, metric_compare=metric, load=load, z_span=z_span, borders=borders)
+    main(args.tag1, args.tag2, generate=generate, metric_compare=metric, load=load, z_span=z_span, borders=borders)
     # plot_vfs(tag='case1_rect', load=True)
     # main('train', True, 'test')
 

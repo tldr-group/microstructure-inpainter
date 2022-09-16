@@ -63,7 +63,7 @@ class RectWorker(QObject):
         print(f"Data shape: {training_imgs.shape}")
 
         # Get train params
-        l, dl, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, lz, nz, = c.get_train_params()
+        l, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, nz, = c.get_train_params()
 
         mask = mask.to(device)
         unmasked = unmasked.to(device)

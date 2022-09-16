@@ -58,7 +58,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             c.load()
 
         # Build the nets and initialise worker
-        netD, netG = networks.make_nets_rect(c, overwrite)
+        netD, netG = networks.make_nets(c, overwrite)
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
         worker.verbose = True
         if mode == 'train':
@@ -71,7 +71,6 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
 
     elif shape == 'poly':
         c = ConfigPoly(tag)
-        c.load()
         c.data_path = path
         c.mask_coords = tuple(coords)
         c.image_type = image_type
@@ -115,15 +114,12 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             overwrite = False
         if c.image_type == 'n-phase':
             c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
-            c.conv_resize=True
-            
         elif c.image_type == 'colour':
             c.n_phases = 3
-            c.conv_resize = True
         else:
             c.n_phases = 1
-        c.image_type = c.image_type
-        netD, netG = networks.make_nets_poly(c, overwrite)
+        c.update_params()
+        netD, netG = networks.make_nets(c, overwrite)
         worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
         worker.verbose = True
         if mode == 'train':
