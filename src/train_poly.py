@@ -4,7 +4,6 @@ import torch.optim as optim
 import numpy as np
 import torch
 import torch.nn as nn
-import tifffile
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
 from copy import deepcopy
@@ -33,7 +32,7 @@ class PolyWorker(QObject):
     def stop(self):
         self.quit_flag = True
 
-    def train(self):
+    def train(self, wandb=None):
         """[summary]
 
         :param c: [description]
@@ -51,7 +50,6 @@ class PolyWorker(QObject):
         netG = self.netG 
         netD = self.netD
         real_seeds = self.real_seeds
-        poly_rects = self.poly_rects 
         mask = self.mask
         overwrite = self.overwrite 
         offline=True
@@ -84,16 +82,10 @@ class PolyWorker(QObject):
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
         
         if c.wandb:
-            wandb_init(tag, offline=False)
-            wandb.watch(netG)
-            wandb.watch(netD)
+            wandb.wandb_init(tag, netG, netD, offline=False)
 
         i=0
         t = 0
-        mses = []
-        iter_list = []
-        time_list = []
-        wass_list = []
 
         # start timing training
         if ('cuda' in str(device)) and (ngpu > 1):
@@ -104,8 +96,7 @@ class PolyWorker(QObject):
             start_overall = time.time()
         
         converged = False
-        converged_list = []
-
+        
         while not self.quit_flag and not converged and t<c.timeout and i<c.max_iters:
             # Discriminator Training
             netD.zero_grad()
@@ -164,12 +155,7 @@ class PolyWorker(QObject):
                     else:
                         self.progress.emit(i, t, mse, abs(wass.item()))
                     
-                    time_list.append(t)
-                    mses.append(mse)
-                    wass_list.append(abs(wass.item()))
-                    iter_list.append(i)
-                    df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
-                    df.to_pickle(f'runs/{tag}/metrics.pkl')
+                
                 else:
                     print(f'Iter: {i}, Time: {t:.1f}, Wass: {abs(wass.item()):.2g}')
                     if c.wandb:
@@ -272,8 +258,6 @@ class PolyWorker(QObject):
         target = img.to(device)
         for ch in range(self.c.n_phases):
             target[ch][mask==1] = -1
-        # plt.imsave('test2.png', torch.cat([target.permute(1,2,0) for i in range(3)], -1).cpu().numpy())
-        # plt.imsave('test.png', np.stack([mask for i in range(3)], -1))
         bs = 1
         target = target.unsqueeze(0)
         target = torch.tile(target, (bs, 1, 1,1))

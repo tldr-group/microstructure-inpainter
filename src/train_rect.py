@@ -1,8 +1,6 @@
-import pandas as pd
 from src.util import *
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import numpy as np
 import torch
 import torch.nn as nn
 import time
@@ -29,7 +27,7 @@ class RectWorker(QObject):
         self.quit_flag = True
 
 
-    def train(self):
+    def train(self, wandb=None):
         """[summary]
 
         :param c: [description]
@@ -68,9 +66,7 @@ class RectWorker(QObject):
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
-        # noise = torch.nn.Parameter(init_noise(1, nz, c, device))
         noise = init_noise(1, nz, c, device)
-        # optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
@@ -85,9 +81,7 @@ class RectWorker(QObject):
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
             noise = torch.load(f'{c.path}/noise.pt')
         if c.wandb:
-            wandb_init(tag, offline=False)
-            wandb.watch(netG)
-            wandb.watch(netD)
+            wandb.wandb_init(tag, netG, netD, offline=False)
         i=0
         t=0
         # start timing training
@@ -125,11 +119,9 @@ class RectWorker(QObject):
             # Generator training
             if (i % int(critic_iters)) == 0:
                 netG.zero_grad()
-                # optNoise.zero_grad()
                 noise_G = torch.randn_like(noise).to(device)
                 # Forward pass through G with noise vector
                 fake_data = netG(noise_G)
-                # output = -netD(crop(fake_data, dl, shift=True, prob=0.05)).mean()
                 output = -netD(fake_data).mean()
 
                 noise_G = make_noise(noise, device, mask_noise=True, delta=[-1,-1])
@@ -139,11 +131,6 @@ class RectWorker(QObject):
                  # # Calculate loss for G and backprop
                 output.backward(retain_graph=True)
                 optG.step()
-                # optNoise.step()
-
-                # with torch.no_grad():
-                #     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                #     noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
 
             # Every 50 iters log images and useful metrics
             if i % 100 == 0:

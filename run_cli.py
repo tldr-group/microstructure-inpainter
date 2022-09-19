@@ -8,7 +8,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
-
+from src.util_cli import *
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 def main(mode, tag, coords, path, image_type, shape, wandb):
@@ -62,7 +62,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
         worker.verbose = True
         if mode == 'train':
-            worker.train()
+            worker.train(wandb=wandbContainer())
         elif mode == 'generate':
             sp = 'out'
             worker.generate(save_path = sp)
@@ -123,7 +123,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
         worker.verbose = True
         if mode == 'train':
-            worker.train()
+            worker.train(wandb=wandbContainer())
         elif mode == 'generate':
             worker.generate()
     else:

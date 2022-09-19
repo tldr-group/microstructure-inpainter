@@ -1,12 +1,8 @@
 import numpy as np
-import pandas as pd
 import torch
 from torch import autograd
-import wandb
-from dotenv import load_dotenv
 import os
-import subprocess
-import shutil
+
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
 from matplotlib.patches import Rectangle
@@ -58,58 +54,6 @@ def initialise_folders(tag, overwrite):
         except:
             pass
 
-def wandb_init(name, offline):
-    """[summary]
-
-    :param name: [description]
-    :type name: [type]
-    :param offline: [description]
-    :type offline: [type]
-    """
-    if offline:
-        mode = 'disabled'
-    else:
-        mode = None
-    load_dotenv(os.path.join(os.getcwd(), '.env'))
-    API_KEY = os.getenv('WANDB_API_KEY')
-    ENTITY = os.getenv('WANDB_ENTITY')
-    PROJECT = os.getenv('WANDB_PROJECT')
-    if API_KEY is None or ENTITY is None or PROJECT is None:
-        raise AssertionError('.env file arguments missing. Make sure WANDB_API_KEY, WANDB_ENTITY and WANDB_PROJECT are present.')
-    print("Logging into W and B using API key {}".format(API_KEY))
-    process = subprocess.run(["wandb", "login", API_KEY], capture_output=True)
-    print("stderr:", process.stderr)
-
-    
-    print('initing')
-    wandb.init(entity=ENTITY, name=name, project=PROJECT, mode=mode)
-
-    wandb_config = {
-        'active': True,
-        'api_key': API_KEY,
-        'entity': ENTITY,
-        'project': PROJECT,
-        # 'watch_called': False,
-        'no_cuda': False,
-        # 'seed': 42,
-        'log_interval': 1000,
-
-    }
-    # wandb.watch_called = wandb_config['watch_called']
-    wandb.config.no_cuda = wandb_config['no_cuda']
-    # wandb.config.seed = wandb_config['seed']
-    wandb.config.log_interval = wandb_config['log_interval']
-
-def wandb_save_models(fn):
-    """[summary]
-
-    :param pth: [description]
-    :type pth: [type]
-    :param fn: [description]
-    :type fn: filename
-    """
-    shutil.copy(fn, os.path.join(wandb.run.dir, fn))
-    wandb.save(fn)
 
 # training util
 def preprocess(data_path, imtype, load=True):
@@ -134,7 +78,7 @@ def preprocess(data_path, imtype, load=True):
         if imtype == 'n-phase':
             phases = np.unique(img)
             if len(phases) > 10:
-                raise AssertionError('Running in n-phase mode. Image exceeds max phases. Try running in colour or grayscale')
+                raise AssertionError('Image not one hot encoded.')
             x, y = img.shape
             img_oh = torch.zeros(len(phases), x, y)
             for i, ph in enumerate(phases):

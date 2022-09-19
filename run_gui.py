@@ -4,7 +4,6 @@ from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFi
 from PyQt5.QtGui import QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
 from PyQt5.QtCore import QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess
 import matplotlib.pyplot as plt
-from sympy import re
 from src.train_poly import PolyWorker
 from src.train_rect import RectWorker
 from config import Config, ConfigPoly
@@ -13,6 +12,7 @@ import src.util as util
 from matplotlib.path import Path
 import numpy as np
 import os
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
