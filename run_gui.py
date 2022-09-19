@@ -1,8 +1,8 @@
 import shutil
 import sys
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QAction, QComboBox, QLabel, QDialog
-from PyQt5.QtGui import QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
-from PyQt5.QtCore import QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess
+from PyQt5.QtGui import QFontDatabase, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
+from PyQt5.QtCore import QDir, QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess
 import matplotlib.pyplot as plt
 from src.train_poly import PolyWorker
 from src.train_rect import RectWorker
@@ -52,10 +52,6 @@ class PainterWidget(QWidget):
         self.stopTrain.move(10,10)
         self.stopTrain.hide()
 
-        self.restartBtn = QPushButton('Restart', self)
-        self.restartBtn.setText('Restart')
-        self.restartBtn.clicked.connect(self.restart)
-
         self.generateBtn = QPushButton('Generate', self)
         self.generateBtn.setText("Generate")
         self.generateBtn.move(10,10)
@@ -68,17 +64,17 @@ class PainterWidget(QWidget):
         loader = parent.addToolBar('&Load')
         loader.addAction(loadAct)
 
+        saveAct = QAction('Save', self)
+        saveAct.setStatusTip('Save inpainted image')
+        saveAct.triggered.connect(self.onSaveClick)
+        save = parent.addToolBar('&Save')
+        save.addAction(saveAct)
+
         trainAct = QAction('Train', self)
         trainAct.setStatusTip('Train network')
         trainAct.triggered.connect(self.onTrainClick)
         trainer = parent.addToolBar('&Train')
         trainer.addAction(trainAct)
-
-        borderAct = QAction('Border', self)
-        borderAct.setStatusTip('Toggle patch border')
-        borderAct.triggered.connect(self.onBorderClick)
-        border = parent.addToolBar('&Border')
-        border.addAction(borderAct)
 
         self.ImageTypeBox = QComboBox()
         self.ImageTypeBox.insertItems(1,['n-phase', 'colour', 'grayscale'])
@@ -92,19 +88,23 @@ class PainterWidget(QWidget):
         selector.addWidget(self.selectorBox)
         self.selectorBox.activated[str].connect(self.onShapeSelected)
 
-        saveAct = QAction('Save', self)
-        saveAct.setStatusTip('Save inpainted image')
-        saveAct.triggered.connect(self.onSaveClick)
-        save = parent.addToolBar('&Save')
-        save.addAction(saveAct)
-
         parent.addToolBarBreak()
 
         label = parent.addToolBar('Step Label')
         label.addWidget(self.step_label)
 
-        label = parent.addToolBar('Restart')
-        label.addWidget(self.restartBtn)
+        borderAct = QAction('Border', self)
+        borderAct.setStatusTip('Toggle patch border')
+        borderAct.triggered.connect(self.onBorderClick)
+        border = parent.addToolBar('&Border')
+        border.addAction(borderAct)
+
+        restartAct = QAction('Restart', self)
+        restartAct.setStatusTip('Restart GUI')
+        restartAct.triggered.connect(self.restart)
+        restartTool = parent.addToolBar('&Restart')
+        restartTool.addAction(restartAct)
+
 
         timeLine = QTimeLine(self.frames * 100, self)
         timeLine.setFrameRange(0, self.frames - 1)
@@ -425,6 +425,8 @@ def main():
     qss="style.qss"
     with open(qss,"r") as fh:
         app.setStyleSheet(fh.read())
+    dir_ = QDir("Roboto")
+    _id = QFontDatabase.addApplicationFont("assets/ariblk.ttf")
     clear_temp()
     window = MainWindow()
 

@@ -10,3 +10,4 @@ data/temp*
 analysis
 build
 dist
+!inpainting-logo.png
