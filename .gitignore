@@ -5,9 +5,8 @@ runs
 wandb
 optim
 data/temp*
-*png
 *json
 analysis
 build
 dist
-!inpainting-logo.png
+.DS_Store
