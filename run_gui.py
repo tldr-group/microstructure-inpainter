@@ -1,8 +1,8 @@
 import shutil
 import sys
-from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog, QAction, QComboBox, QLabel, QDialog
+from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog,QHBoxLayout, QToolBar, QAction, QComboBox, QLabel, QDialog, QScrollArea
 from PyQt5.QtGui import QFontDatabase, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
-from PyQt5.QtCore import QDir, QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess
+from PyQt5.QtCore import QDir, QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess, Qt
 import matplotlib.pyplot as plt
 from src.train_poly import PolyWorker
 from src.train_rect import RectWorker
@@ -14,23 +14,116 @@ import numpy as np
 import os
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, primaryScreen):
         super().__init__()
+        self.primaryScreen = primaryScreen
         self.initUI()
+        self.initToolbar()
+        self.connectToolbar()
+        self.resizeWindow()
+
+    def resizeWindow(self):
+        padding = 40
+        im_w, im_h = self.painter.image.width(), self.painter.image.height()
+        sc_w, sc_h = self.primaryScreen.availableGeometry().width(), self.primaryScreen.availableGeometry().height()
+        tb_w, tb_h = self.mainToolbar.width(), self.mainToolbar.height()
+        tb_h = self.mainToolbar.widgetForAction(self.mainToolbar.stopBtn).height() + padding
+        if im_w > sc_w:
+            w = sc_w
+        elif tb_w>im_w:
+            w = tb_w
+        else:
+            w = im_w
+        
+        if im_h+tb_h > sc_h:
+            h = sc_h
+        else:
+            h = tb_h+im_h
+        self.h, self.w = h, w
+        self.contents.setMinimumWidth(im_w+5)
+        self.contents.setMinimumHeight(im_h+5)
+        self.setGeometry(30,30,w,h)
 
     def initUI(self):
         
-        # self.setGeometry(30,30,600,400)
         self.setWindowTitle('Microstructure Inpainter')
-        self.painter_widget = PainterWidget(self) 
-        self.setCentralWidget(self.painter_widget)
-        self.extra_padding = 100
-        self.setGeometry(30, 30, self.painter_widget.image.width(), self.painter_widget.image.height()+self.extra_padding)
+        self.painter = PainterWidget(self) 
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        
+        self.contents = QWidget()
+        self.scroll.setWidget(self.contents)
+        self.layout = QHBoxLayout(self.contents)
+
+        self.layout.addWidget(self.painter)
+        
+        self.setCentralWidget(self.scroll)
         self.show()
+    
+    def initToolbar(self):
+        self.mainToolbar = QToolBar("Main")
+        self.addToolBar(self.mainToolbar)
+
+        self.mainToolbar.loadAct = QAction('Load', self)
+        self.mainToolbar.loadAct.setStatusTip('Load new image from file')
+        # loader = self.addToolBar('&Load')
+        self.mainToolbar.addAction(self.mainToolbar.loadAct)
+
+        self.mainToolbar.saveAct = QAction('Save', self)
+        self.mainToolbar.saveAct.setStatusTip('Save inpainted image')
+        # save = self.addToolBar('&Save')
+        self.mainToolbar.addAction(self.mainToolbar.saveAct)
+
+        self.mainToolbar.restartAct = QAction('Restart', self)
+        self.mainToolbar.restartAct.setStatusTip('Restart GUI')
+        self.mainToolbar.addAction(self.mainToolbar.restartAct)
+
+        self.mainToolbar.trainBtn = QAction('Train', self)
+        self.mainToolbar.trainBtn.setStatusTip('Train network')
+        self.mainToolbar.trainBtn.triggered.connect(self.painter.onTrainClick)
+        self.mainToolbar.addAction(self.mainToolbar.trainBtn)
+
+        self.mainToolbar.stopBtn = QAction("Stop", self)
+        self.mainToolbar.addAction(self.mainToolbar.stopBtn)
+        self.mainToolbar.stopBtn.setVisible(False)
+
+        self.mainToolbar.generateBtn = QAction("Generate", self)
+        self.mainToolbar.addAction(self.mainToolbar.generateBtn)
+        self.mainToolbar.generateBtn.setVisible(False)
+
+        self.mainToolbar.ImageTypeBox = QComboBox()
+        self.mainToolbar.ImageTypeBox.insertItems(1,['n-phase', 'colour', 'grayscale'])
+        self.mainToolbar.addWidget(self.mainToolbar.ImageTypeBox)
+
+        self.mainToolbar.selectorBox = QComboBox()
+        self.mainToolbar.selectorBox.insertItems(1,['rectangle', 'poly'])
+        self.mainToolbar.addWidget(self.mainToolbar.selectorBox)
+
+        # self.mainToolbar.addToolBarBreak()
+
+        self.mainToolbar.borderAct = QAction('Border', self)
+        self.mainToolbar.borderAct.setStatusTip('Toggle patch border')
+        self.mainToolbar.addAction(self.mainToolbar.borderAct)
+
+        self.resizeWindow()
+    
+    def connectToolbar(self):
+        self.mainToolbar.loadAct.triggered.connect(self.painter.onLoadClick)
+        self.mainToolbar.saveAct.triggered.connect(self.painter.onSaveClick)
+        self.mainToolbar.restartAct.triggered.connect(self.painter.restart)
+        self.mainToolbar.stopBtn.triggered.connect(self.painter.stop_train)
+        self.mainToolbar.generateBtn.triggered.connect(self.painter.generateInpaint)
+        self.mainToolbar.ImageTypeBox.activated[str].connect(self.painter.onImageTypeSelected)
+        self.mainToolbar.selectorBox.activated[str].connect(self.painter.onShapeSelected)
+        self.mainToolbar.borderAct.triggered.connect(self.painter.onBorderClick)
+        self.mainToolbar.addWidget(self.painter.step_label)
+        
 
 class PainterWidget(QWidget):
     def __init__(self, parent):
         super(PainterWidget, self).__init__(parent)
+
         self.parent = parent
         self.image = QPixmap("data/example_inpainting.png")
         self.img_path = "data/example_inpainting.png"
@@ -47,64 +140,6 @@ class PainterWidget(QWidget):
         self.training = False
         self.generate = False
 
-        self.stopTrain = QPushButton('Stop', self)
-        self.stopTrain.setText("Stop")
-        self.stopTrain.move(10,10)
-        self.stopTrain.hide()
-
-        self.generateBtn = QPushButton('Generate', self)
-        self.generateBtn.setText("Generate")
-        self.generateBtn.move(10,10)
-        self.generateBtn.hide()
-        self.generateBtn.clicked.connect(self.generateInpaint)
-
-        loadAct = QAction('Load', self)
-        loadAct.setStatusTip('Load new image from file')
-        loadAct.triggered.connect(self.onLoadClick)
-        loader = parent.addToolBar('&Load')
-        loader.addAction(loadAct)
-
-        saveAct = QAction('Save', self)
-        saveAct.setStatusTip('Save inpainted image')
-        saveAct.triggered.connect(self.onSaveClick)
-        save = parent.addToolBar('&Save')
-        save.addAction(saveAct)
-
-        trainAct = QAction('Train', self)
-        trainAct.setStatusTip('Train network')
-        trainAct.triggered.connect(self.onTrainClick)
-        trainer = parent.addToolBar('&Train')
-        trainer.addAction(trainAct)
-
-        self.ImageTypeBox = QComboBox()
-        self.ImageTypeBox.insertItems(1,['n-phase', 'colour', 'grayscale'])
-        selector = parent.addToolBar("Image Type")
-        selector.addWidget(self.ImageTypeBox)
-        self.ImageTypeBox.activated[str].connect(self.onImageTypeSelected)
-
-        self.selectorBox = QComboBox()
-        self.selectorBox.insertItems(1,['rectangle', 'poly'])
-        selector = parent.addToolBar("Selector")
-        selector.addWidget(self.selectorBox)
-        self.selectorBox.activated[str].connect(self.onShapeSelected)
-
-        parent.addToolBarBreak()
-
-        label = parent.addToolBar('Step Label')
-        label.addWidget(self.step_label)
-
-        borderAct = QAction('Border', self)
-        borderAct.setStatusTip('Toggle patch border')
-        borderAct.triggered.connect(self.onBorderClick)
-        border = parent.addToolBar('&Border')
-        border.addAction(borderAct)
-
-        restartAct = QAction('Restart', self)
-        restartAct.setStatusTip('Restart GUI')
-        restartAct.triggered.connect(self.restart)
-        restartTool = parent.addToolBar('&Restart')
-        restartTool.addAction(restartAct)
-
 
         timeLine = QTimeLine(self.frames * 100, self)
         timeLine.setFrameRange(0, self.frames - 1)
@@ -120,11 +155,11 @@ class PainterWidget(QWidget):
         self.setPixmap(f"data/temp/temp{i}.png")
         
     def onImageTypeSelected(self, event):
-        self.image_type = self.ImageTypeBox.currentText()
+        self.image_type = self.parent.mainToolbar.ImageTypeBox.currentText()
 
     def setPixmap(self, fp):
         self.image = QPixmap(fp)
-        self.parent.setGeometry(30, 30, self.image.width(), self.image.height()+self.parent.extra_padding)
+        self.parent.resizeWindow()
         self.update()
 
 
@@ -214,24 +249,27 @@ class PainterWidget(QWidget):
         self.end = QPoint()
         self.poly = []
         self.old_polys = []
-        self.shape = self.selectorBox.currentText()
+        self.shape = self.parent.selectorBox.currentText()
         self.update()
 
     def onTrainClick(self, event):
         self.training = True
         self.generate = False
 
-        self.stopTrain.show()
-        self.generateBtn.hide()
+        self.parent.mainToolbar.stopBtn.setVisible(True)
+        self.parent.mainToolbar.generateBtn.setVisible(False)
+        self.parent.mainToolbar.trainBtn.setVisible(False)
         tag = self.tag
         try:
             if self.shape=='rect':
+                # transform relative to image
                 x1, x2, y1, y2 = self.begin.x(), self.end.x(), self.begin.y(), self.end.y()
+                
                 # get relative coordinates
                 r = self.image.rect()
+                
                 w = self.frameGeometry().width()
                 h = self.frameGeometry().height()
-
                 x1 = int(x1*r.width()/w)
                 x2 = int(x2*r.width()/w)
                 y1 = int(y1*r.height()/h)
@@ -317,7 +355,6 @@ class PainterWidget(QWidget):
             self.worker.moveToThread(self.thread)
             # Step 5: Connect signals and slots
             self.thread.started.connect(self.worker.train)
-            self.stopTrain.clicked.connect(lambda: self.worker.stop())
             self.worker.finished.connect(self.thread.quit)
             self.worker.finished.connect(self.worker.deleteLater)
             self.worker.finished.connect(self.stop_train)
@@ -333,16 +370,16 @@ class PainterWidget(QWidget):
             dialog.adjustSize()
             dialog.exec_()
             self.training = False
-            self.stopTrain.hide()
+            self.parent.mainToolbar.stopBtn.setVisible(False)
     
     def stop_train(self):
         self.training = False
-        self.stopTrain.hide()
-        self.generateBtn.show()
+        self.parent.mainToolbar.stopBtn.setVisible(False)
+        self.parent.mainToolbar.generateBtn.setVisible(True)
 
 
     def progress(self, i, t, mse, wass):
-        self.step_label.setText(f'Iter: {i}, Time: {t}, MSE: {mse:.2g}, Wass: {mse:.2g}')
+        self.step_label.setText(f'Iter: {i}, Time: {t}, MSE: {mse:.2g}, Wass: {wass:.2g}')
         if self.shape=='poly':
             self.timeline.start()
         else:
@@ -428,7 +465,7 @@ def main():
     dir_ = QDir("Roboto")
     _id = QFontDatabase.addApplicationFont("assets/ariblk.ttf")
     clear_temp()
-    window = MainWindow()
+    window = MainWindow(app.primaryScreen())
 
     sys.exit(app.exec_())
 

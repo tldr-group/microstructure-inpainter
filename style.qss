@@ -1,7 +1,7 @@
 * {
 	font-size:14px;
 	color:#FAFAFA;
-	font-family:"Arial Black";
+	font-family:"Arial";
 	background:#242424;
 }
 
@@ -9,6 +9,7 @@
 QToolBar { 
     background-color: #242424;
     border: none;
+    font-family:"Arial Black";
 }
 
 QToolButton {
@@ -19,7 +20,7 @@ QToolButton {
     margin-bottom: 12px;
     padding: 5px;
     border-radius: 3px;
-
+    font-family:"Arial Black";
 }
 
 QPushButton {
@@ -30,6 +31,7 @@ QPushButton {
     margin-bottom: 12px;
     padding: 5px;
     border-radius: 3px;
+    font-family:"Arial Black";
 }
 
 QToolButton {
@@ -40,6 +42,7 @@ QToolButton {
     margin-bottom: 12px;
     padding: 5px;
     border-radius: 3px;
+    font-family:"Arial Black";
 
 }
 
