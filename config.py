@@ -1,5 +1,5 @@
 import json
-
+import torch
 
 class Config():
     """Config class
@@ -27,9 +27,9 @@ class Config():
         self.Lambda = 10
         self.critic_iters = 10
         self.pw_coeff = 1
-        self.ngpu = 1
+        self.ngpu = torch.cuda.device_count()
         if self.ngpu > 0:
-            self.device_name = "cuda:1"
+            self.device_name = "cuda:0"
         else:
             self.device_name = 'cpu'
         self.conv_resize = True
