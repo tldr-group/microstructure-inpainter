@@ -2,7 +2,7 @@ import shutil
 import sys
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog,QHBoxLayout, QToolBar, QAction, QComboBox, QLabel, QDialog, QScrollArea
 from PyQt5.QtGui import QFontDatabase, QColor, QBrush, QPainter, QPixmap, QPolygonF, QPen
-from PyQt5.QtCore import QDir, QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess, Qt
+from PyQt5.QtCore import QDir, QPoint, QRect, QPointF, QThread, QTimeLine, QCoreApplication, QProcess, pyqtSignal
 import matplotlib.pyplot as plt
 from src.train_poly import PolyWorker
 from src.train_rect import RectWorker
@@ -62,7 +62,10 @@ class MainWindow(QMainWindow):
     
     def initToolbar(self):
         self.mainToolbar = QToolBar("Main")
+        self.trainToolbar = QToolBar("Training")
         self.addToolBar(self.mainToolbar)
+        self.addToolBarBreak()
+        self.addToolBar(self.trainToolbar)
 
         self.mainToolbar.loadAct = QAction('Load', self)
         self.mainToolbar.loadAct.setStatusTip('Load new image from file')
@@ -99,13 +102,11 @@ class MainWindow(QMainWindow):
         self.mainToolbar.selectorBox.insertItems(1,['rectangle', 'poly'])
         self.mainToolbar.addWidget(self.mainToolbar.selectorBox)
 
-        # self.mainToolbar.addToolBarBreak()
-
         self.mainToolbar.borderAct = QAction('Border', self)
         self.mainToolbar.borderAct.setStatusTip('Toggle patch border')
         self.mainToolbar.addAction(self.mainToolbar.borderAct)
 
-        self.mainToolbar.addWidget(self.painter.step_label)
+        self.trainToolbar.addWidget(self.painter.step_label)
 
         self.resizeWindow()
     
@@ -249,7 +250,7 @@ class PainterWidget(QWidget):
         self.end = QPoint()
         self.poly = []
         self.old_polys = []
-        self.shape = self.parent.selectorBox.currentText()
+        self.shape = self.parent.mainToolbar.selectorBox.currentText()
         self.update()
 
     def onTrainClick(self, event):
@@ -340,13 +341,13 @@ class PainterWidget(QWidget):
                     c.conv_resize = True
                 else:
                     c.n_phases = 1
+                c.update_params()
                 c.image_type = self.image_type
                 netD, netG = make_nets(c, overwrite)
                 
                 print(f'training with {c.n_phases} channels using image type {self.image_type} and net type conv resize')
                 self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, self.frames, overwrite)
 
-                
                 
             self.thread = QThread()
             # Step 3: Create a worker object
@@ -371,8 +372,11 @@ class PainterWidget(QWidget):
             dialog.exec_()
             self.training = False
             self.parent.mainToolbar.stopBtn.setVisible(False)
+            self.parent.mainToolbar.trainBtn.setVisible(True)
     
     def stop_train(self):
+        print("Stopping training")
+        self.worker.stop()
         self.training = False
         self.parent.mainToolbar.stopBtn.setVisible(False)
         self.parent.mainToolbar.generateBtn.setVisible(True)
@@ -384,6 +388,8 @@ class PainterWidget(QWidget):
             self.timeline.start()
         else:
             self.image = QPixmap("data/temp/temp.png")
+            
+            self.update()
 
     def generateInpaint(self):
         tag = self.tag

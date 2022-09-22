@@ -20,8 +20,8 @@ class Config():
         self.batch_size = 4
         self.beta1 = 0.9
         self.beta2 = 0.999
-        self.max_iters = 100e3
-        self.timeout = 60*60*12
+        self.max_iters = 300e3
+        self.timeout = 1e12
         self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10
