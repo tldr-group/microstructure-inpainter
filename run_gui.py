@@ -31,14 +31,14 @@ class MainWindow(QMainWindow):
         if im_w > sc_w:
             w = sc_w
         elif tb_w>im_w:
-            w = tb_w
+            w = tb_w+10
         else:
-            w = im_w
+            w = im_w+10
         
         if im_h+tb_h > sc_h:
             h = sc_h
         else:
-            h = tb_h+im_h
+            h = tb_h+im_h+10
         self.h, self.w = h, w
         self.contents.setMinimumWidth(im_w+5)
         self.contents.setMinimumHeight(im_h+5)
@@ -50,7 +50,6 @@ class MainWindow(QMainWindow):
         self.painter = PainterWidget(self) 
         self.scroll = QScrollArea(self)
         self.scroll.setWidgetResizable(True)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         
         self.contents = QWidget()
         self.scroll.setWidget(self.contents)
