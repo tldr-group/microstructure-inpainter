@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         self.mainToolbar.borderAct.setStatusTip('Toggle patch border')
         self.mainToolbar.addAction(self.mainToolbar.borderAct)
 
+        self.mainToolbar.addWidget(self.painter.step_label)
+
         self.resizeWindow()
     
     def connectToolbar(self):
@@ -116,7 +118,6 @@ class MainWindow(QMainWindow):
         self.mainToolbar.ImageTypeBox.activated[str].connect(self.painter.onImageTypeSelected)
         self.mainToolbar.selectorBox.activated[str].connect(self.painter.onShapeSelected)
         self.mainToolbar.borderAct.triggered.connect(self.painter.onBorderClick)
-        self.mainToolbar.addWidget(self.painter.step_label)
         
 
 class PainterWidget(QWidget):
