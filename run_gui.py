@@ -335,6 +335,7 @@ class PainterWidget(QWidget):
                 c.cli = False
                 c.data_path = self.img_path
                 c.temp_path = self.parent.temp
+                c.root = str(self.parent.root)
                 r = self.image.rect()
                 w = self.frameGeometry().width()
                 h = self.frameGeometry().height()
