@@ -202,16 +202,16 @@ class PolyWorker(QObject):
                 final_img[self.mask==0] = final_img_fresh[self.mask==0]
                 final_img = (final_img.numpy()/final_img.max())
                 out = np.stack([final_img for i in range(3)], -1)
-                plt.imsave(f'data/temp/temp{i}.png', out)
+                plt.imsave(os.path.join(self.c.root,f'data/temp/temp{i}.png'), out)
             else:
                 for ch in range(self.c.n_phases):    
                     final_img[:,:,ch][self.mask==0] = final_img_fresh[:,:,ch][self.mask==0]
                 if self.c.image_type=='colour':
                     out = final_img.numpy()
-                    plt.imsave(f'data/temp/temp{i}.png', out)
+                    plt.imsave(os.path.join(self.c.root,f'data/temp/temp{i}.png'), out)
                 elif self.c.image_type=='grayscale':
                     out = np.concatenate([final_img for i in range(3)], -1)
-                    plt.imsave(f'data/temp/temp{i}.png', out)
+                    plt.imsave(os.path.join(self.c.root,f'data/temp/temp{i}.png'), out)
         plt.imsave(f'data/temp/temp.png', out)
         if save_path:
             fig, ax = plt.subplots()

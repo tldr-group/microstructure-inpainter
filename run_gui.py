@@ -1,3 +1,4 @@
+from pathlib import Path
 import shutil
 import sys
 from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QPushButton, QFileDialog,QHBoxLayout, QToolBar, QAction, QComboBox, QLabel, QDialog, QScrollArea
@@ -9,14 +10,16 @@ from src.train_rect import RectWorker
 from config import Config, ConfigPoly
 from src.networks import make_nets
 import src.util as util
-from matplotlib.path import Path
+from matplotlib.path import Path as MPath
 import numpy as np
 import os
 
 class MainWindow(QMainWindow):
-    def __init__(self, primaryScreen):
+    def __init__(self, primaryScreen, root):
         super().__init__()
         self.primaryScreen = primaryScreen
+        self.root = root
+        self.temp = str(root / "data/temp/temp.png")
         self.initUI()
         self.initToolbar()
         self.connectToolbar()
@@ -131,8 +134,8 @@ class PainterWidget(QWidget):
         super(PainterWidget, self).__init__(parent)
 
         self.parent = parent
-        self.image = QPixmap("data/example_inpainting.png")
-        self.img_path = "data/example_inpainting.png"
+        self.image = QPixmap(str(self.parent.root / "data/example_inpainting.png"))
+        self.img_path = str(self.parent.root / "data/example_inpainting.png")
         self.shape = 'rect'
         self.image_type = 'n-phase'
         self.tag = 'test_run'
@@ -159,7 +162,7 @@ class PainterWidget(QWidget):
         QCoreApplication.quit()
         status = QProcess.startDetached(sys.executable, sys.argv)
     def show_next_img(self, i):
-        self.setPixmap(f"data/temp/temp{i}.png")
+        self.setPixmap(str(self.parent.root / f"data/temp/temp{i}.png"))
         
     def onImageTypeSelected(self, event):
         self.image_type = self.parent.mainToolbar.ImageTypeBox.currentText()
@@ -183,7 +186,7 @@ class PainterWidget(QWidget):
         options |= QFileDialog.DontUseNativeDialog
         fileName, _ = QFileDialog.getSaveFileName(self, "Save Image", os.getcwd(), "All Files (*)", options=options)
         if fileName:
-            img = plt.imread('data/temp/temp.png')
+            img = plt.imread(self.parent.temp)
             plt.imsave(fileName, img)
             print(f"Image saved as: {fileName}")
     
@@ -302,10 +305,11 @@ class PainterWidget(QWidget):
                 c.wandb = False
                 c.cli = False
                 c.data_path = self.img_path
+                c.temp_path = self.parent.temp
+                c.root = str(self.parent.root)
                 c.mask_coords = (x1,x2,y1,y2)
-                # overwrite = util.check_existence(tag)
                 overwrite = True
-                util.initialise_folders(tag, overwrite)
+                util.initialise_folders(tag, overwrite, self.parent.root)
                 training_imgs, nc = util.preprocess(c.data_path, self.image_type)
                 mask, unmasked, img_size, seed, c = util.make_mask(training_imgs, c)
                 c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
@@ -330,6 +334,7 @@ class PainterWidget(QWidget):
                 c.wandb = False
                 c.cli = False
                 c.data_path = self.img_path
+                c.temp_path = self.parent.temp
                 r = self.image.rect()
                 w = self.frameGeometry().width()
                 h = self.frameGeometry().height()
@@ -341,7 +346,7 @@ class PainterWidget(QWidget):
                 mask = np.zeros((h,w))
                 poly_rects = []
                 for poly in new_polys: 
-                    p = Path(poly) # make a polygon
+                    p = MPath(poly) # make a polygon
                     grid = p.contains_points(points)
                     mask += grid.reshape(h, w)
                     xs, ys = [point[1] for point in poly], [point[0] for point in poly]
@@ -353,7 +358,7 @@ class PainterWidget(QWidget):
                 seeds_mask[seeds_mask>1]=1
                 real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
                 overwrite = True
-                util.initialise_folders(tag, overwrite)
+                util.initialise_folders(tag, overwrite, self.parent.root)
                 if self.image_type == 'n-phase':
                     c.n_phases = len(np.unique(plt.imread(c.data_path)[...,0]))
                     c.conv_resize=True
@@ -411,7 +416,7 @@ class PainterWidget(QWidget):
             if self.worker.opt_whilst_train:
                 self.timeline.start()
         else:
-            self.image = QPixmap("data/temp/temp.png")
+            self.image = QPixmap(self.parent.temp)
             
             self.update()
 
@@ -421,12 +426,12 @@ class PainterWidget(QWidget):
         if self.shape == 'rect':
             c = Config(tag)
             c.load()
-            original_img, nc = util.preprocess('data/temp/temp.png', self.image_type)
+            original_img, nc = util.preprocess(self.parent.temp, self.image_type)
             netD, netG = make_nets(c, overwrite)
             self.worker = RectWorker(c, netG, netD, original_img, nc)
             self.worker.verbose = False
             self.worker.generate()
-            self.image = QPixmap("data/temp/temp.png")
+            self.image = QPixmap(self.parent.temp)
             self.update()
         elif self.shape == 'poly':
             if len(self.old_polys) ==0:
@@ -446,7 +451,7 @@ class PainterWidget(QWidget):
             mask = np.zeros((h,w))
             poly_rects = []
             for poly in new_polys: 
-                p = Path(poly) # make a polygon
+                p = MPath(poly) # make a polygon
                 grid = p.contains_points(points)
                 mask += grid.reshape(h, w)
                 xs, ys = [point[1] for point in poly], [point[0] for point in poly]
@@ -474,8 +479,8 @@ class PainterWidget(QWidget):
             self.timeline.start()
             self.update()
         
-def clear_temp():
-    folder = 'data/temp'
+def clear_temp(root):
+    folder = root / 'data/temp'
     for filename in os.listdir(folder):
         file_path = os.path.join(folder, filename)
         try:
@@ -489,13 +494,17 @@ def clear_temp():
 def main():
 
     app = QApplication(sys.argv)
-    qss="style.qss"
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        root = Path(sys._MEIPASS)
+    else:
+        root = Path(__file__).parent
+    qss= root / "style.qss"
     with open(qss,"r") as fh:
         app.setStyleSheet(fh.read())
     dir_ = QDir("Roboto")
-    _id = QFontDatabase.addApplicationFont("assets/ariblk.ttf")
-    clear_temp()
-    window = MainWindow(app.primaryScreen())
+    _id = QFontDatabase.addApplicationFont(str(root / "assets/ariblk.ttf"))
+    clear_temp(root)
+    window = MainWindow(app.primaryScreen(), root)
 
     sys.exit(app.exec_())
 

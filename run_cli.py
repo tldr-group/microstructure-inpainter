@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 from src import networks, util
 from src.train_rect import RectWorker
 from src.train_poly import PolyWorker
@@ -7,7 +8,7 @@ from config import Config, ConfigPoly
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.path import Path
+from matplotlib.path import MPath
 from src.util_cli import *
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -23,19 +24,23 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
     :raises ValueError: [description]
     """
     print("Running in {} mode, tagged {}".format(mode, tag))
+    root = Path(__file__).parent
+    temp = str(Path / "data/temp/temp.png")
 
         
     if shape=='rect':
         # load config and command line arguments
         c = Config(tag)
+        c.temp = temp
+        c.root = str(root)
         c.data_path = path
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
         c.wandb = bool(wandb)
         if mode=='train':
-            overwrite = util.check_existence(tag)
-            util.initialise_folders(tag, overwrite)
+            overwrite = util.check_existence(tag, root)
+            util.initialise_folders(tag, overwrite, root)
         else:
             overwrite = False
         # Pre-process the data and adjust the nets
@@ -51,7 +56,6 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             c.n_phases = 1
         
         if mode=='train':
-            # c = util.update_discriminator(c)
             c.update_params()
             c.save()
         else:
@@ -92,7 +96,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         mask = np.zeros((h,w))
         poly_rects = []
         for poly in new_polys: 
-            p = Path(poly) # make a polygon
+            p = MPath(poly) # make a polygon
             grid = p.contains_points(points)
             mask += grid.reshape(h, w)
             xs, ys = [point[1] for point in poly], [point[0] for point in poly]

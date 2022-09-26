@@ -8,7 +8,7 @@ from matplotlib.pyplot import cm
 from matplotlib.patches import Rectangle
 
 # check for existing models and folders
-def check_existence(tag):
+def check_existence(tag,root):
     """Checks if model exists, then asks for user input. Returns True for overwrite, False for load.
 
     :param tag: [description]
@@ -19,8 +19,8 @@ def check_existence(tag):
     :rtype: [type]
     """
     root = f'runs/{tag}'
-    check_D = os.path.exists(f'{root}/Disc.pt')
-    check_G = os.path.exists(f'{root}/Gen.pt')
+    check_D = os.path.exists(f'{root}/runs/{tag}/Disc.pt')
+    check_G = os.path.exists(f'{root}/runs/{tag}/Gen.pt')
     if check_G or check_D:
         print(f'Models already exist for tag {tag}.')
         x = input("To overwrite existing model enter 'o', to load existing model enter 'l' or to cancel enter 'c'.\n")
@@ -38,7 +38,7 @@ def check_existence(tag):
 
 
 # set-up util
-def initialise_folders(tag, overwrite):
+def initialise_folders(tag, overwrite, root):
     """[summary]
 
     :param tag: [description]
@@ -46,11 +46,11 @@ def initialise_folders(tag, overwrite):
     """
     if overwrite:
         try:
-            os.mkdir(f'runs')
+            os.mkdir(f'{root}/runs')
         except:
             pass
         try:
-            os.mkdir(f'runs/{tag}')
+            os.mkdir(f'{root}/runs/{tag}')
         except:
             pass
 
@@ -156,12 +156,6 @@ def make_mask(training_imgs, c):
     return mask, unmasked, G_out_size, img_seed, c
 
 def update_pixmap_rect(raw, img, c, save_path=None, border=False):
-    # fig, ax = plt.subplots(211)
-    # ax[0].imshow(img[0,0].detach().cpu().numpy())
-    # ax[1].imshow(img[0,1].detach().cpu().numpy())
-    # plt.imshow(img[0].cpu().permute(1,2,0).numpy())
-    # plt.savefig('data/temp/raw.png')
-    # plt.close()
     updated_pixmap = raw.clone().unsqueeze(0)
     x1, x2, y1, y2 = c.mask_coords
     lx, ly = c.mask_size
@@ -190,14 +184,14 @@ def update_pixmap_rect(raw, img, c, save_path=None, border=False):
         plt.savefig('data/temp/temp_fig.png', transparent=True, pad_inches=0)
         plt.close()
         if c.image_type == 'grayscale':
-            plt.imsave('data/temp/temp.png', np.concatenate([pm for i in range(3)], -1))
+            plt.imsave(c.temp_path, np.concatenate([pm for i in range(3)], -1))
         else:
-            plt.imsave('data/temp/temp.png', pm)
+            plt.imsave(c.temp_path, pm)
         return fig
     else:
         if c.image_type == 'grayscale':
             pm = np.concatenate([pm for i in range(3)], -1)
-        plt.imsave('data/temp/temp.png', pm)
+        plt.imsave(c.temp_path, pm)
         return pm
     
 
