@@ -8,7 +8,7 @@ a = Analysis(
     ['build_pyi.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[("style.qss", ".")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -20,15 +20,6 @@ a = Analysis(
     noarchive=False,
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-splash = Splash(
-    'assets/inpainting-logo.png',
-    binaries=a.binaries,
-    datas=a.datas,
-    text_pos=None,
-    text_size=12,
-    minify_script=True,
-    always_on_top=True,
-)
 
 exe = EXE(
     pyz,
@@ -36,8 +27,6 @@ exe = EXE(
     a.binaries,
     a.zipfiles,
     a.datas,
-    splash,
-    splash.binaries,
     [],
     name='inpainter',
     debug=False,
