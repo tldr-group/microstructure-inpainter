@@ -122,6 +122,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         netD, netG = networks.make_nets(c, overwrite)
         worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
         worker.verbose = True
+        worker.opt_whilst_train = False
         if mode == 'train':
             worker.train(wandb=wandbContainer())
         elif mode == 'generate':

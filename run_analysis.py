@@ -302,33 +302,33 @@ def plot_z_span(worker, tag2):
         x0, y0, x1, y1 = (int(i) for i in rect)
         w, h = x1-x0, y1-y0
         w_init, h_init = w,h
-        # x1 += 32 - w%32
-        # y1 += 32 - h%32
-        w, h = x1-x0, y1-y0
+        lx, ly = util.calculate_seed_from_size(torch.tensor([w,h]), worker.c)
+        w, h = util.calculate_size_from_seed(torch.tensor([lx,ly]), worker.c)
+        x1 = x0 + w
+        y1 = y0 + h
         im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
         mask_crop = worker.mask[x0-16:x1+16, y0-16:y1+16]
-        c, w, h = im_crop.shape
-        if worker.c.conv_resize:
-            lx, ly = int(w/16), int(h/16)
-        else:
-            lx, ly = int(w/32) + 2, int(h/32) + 2
-            
     target = im_crop.to(device)
     for ch in range(worker.c.n_phases):
         target[ch][mask_crop==1] = -1
     target = target.unsqueeze(0)
-    noise = [torch.nn.Parameter(torch.randn(1, worker.c.nz, lx, ly, requires_grad=True, device=device))]
-    opt = torch.optim.Adam(params=noise, lr=0.005)
+    noise = [torch.nn.Parameter(torch.randn(1, worker.c.nz, lx+4, ly+4, requires_grad=True, device=device))]
+    opt = torch.optim.Adam(params=noise, lr=worker.c.opt_lr)
+    kl_loss = nn.KLDivLoss(reduction="batchmean")
     inpaints = []
     mses = []
     for i in range(int(10000)):
         raw = netG(noise[0])
-        loss = (raw - target)**4
+        loss = (raw - target)**2
         loss[target==-1] = 0
-        loss = loss.sum() / ((target!=-1).sum()*loss.shape[1]*loss.shape[0])
-        mses.append(loss.item())
-        # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
+        loss_copy = loss.clone()
+        loss = loss.mean()
         loss.backward()
+        opt.step()
+        mses.append(loss_copy.mean(dim=(1,2,3)).min().detach().cpu())
+        # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
+        loss_kl = worker.c.opt_kl_coeff*kl_loss(noise[0], torch.randn_like(noise[0]))
+        loss_kl.backward()
         opt.step()
         with torch.no_grad():
             noise[0] -= torch.tile(torch.mean(noise[0], dim=[1]), (1, worker.c.nz,1,1))
@@ -369,6 +369,8 @@ def plot_z_span(worker, tag2):
     ax_10000.imshow(im_10000, cmap='gray')
     ax_10000.set_axis_off()
     ax_mse.plot(mses, color=global_colours[0])
+    for x,y in zip(saves_list, [mses[i] for i in saves_list]):
+        ax_mse.plot(x,y, 'x', color=global_colours[2])
     ax_mse.set_xlabel('Iterations')
     ax_mse.set_ylabel('MSE')
     fig.tight_layout()

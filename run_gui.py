@@ -31,14 +31,14 @@ class MainWindow(QMainWindow):
         if im_w > sc_w:
             w = sc_w
         elif tb_w>im_w:
-            w = tb_w+10
+            w = tb_w
         else:
-            w = im_w+10
+            w = im_w
         
         if im_h+tb_h > sc_h:
             h = sc_h
         else:
-            h = tb_h+im_h+10
+            h = tb_h+im_h
         self.h, self.w = h, w
         self.contents.setMinimumWidth(im_w+5)
         self.contents.setMinimumHeight(im_h+5)
@@ -69,12 +69,10 @@ class MainWindow(QMainWindow):
 
         self.mainToolbar.loadAct = QAction('Load', self)
         self.mainToolbar.loadAct.setStatusTip('Load new image from file')
-        # loader = self.addToolBar('&Load')
         self.mainToolbar.addAction(self.mainToolbar.loadAct)
 
         self.mainToolbar.saveAct = QAction('Save', self)
         self.mainToolbar.saveAct.setStatusTip('Save inpainted image')
-        # save = self.addToolBar('&Save')
         self.mainToolbar.addAction(self.mainToolbar.saveAct)
 
         self.mainToolbar.restartAct = QAction('Restart', self)
@@ -106,6 +104,12 @@ class MainWindow(QMainWindow):
         self.mainToolbar.borderAct.setStatusTip('Toggle patch border')
         self.mainToolbar.addAction(self.mainToolbar.borderAct)
 
+        self.mainToolbar.optAct = QAction('Opt while train', self)
+        self.mainToolbar.optAct.setStatusTip('Toggle optimise while train')
+        self.mainToolbar.addAction(self.mainToolbar.optAct)
+        self.mainToolbar.optAct.setCheckable(True)
+        self.mainToolbar.optAct.setVisible(False)
+
         self.trainToolbar.addWidget(self.painter.step_label)
 
         self.resizeWindow()
@@ -119,6 +123,7 @@ class MainWindow(QMainWindow):
         self.mainToolbar.ImageTypeBox.activated[str].connect(self.painter.onImageTypeSelected)
         self.mainToolbar.selectorBox.activated[str].connect(self.painter.onShapeSelected)
         self.mainToolbar.borderAct.triggered.connect(self.painter.onBorderClick)
+        self.mainToolbar.optAct.triggered.connect(self.painter.onOptimiseClick)
         
 
 class PainterWidget(QWidget):
@@ -140,6 +145,7 @@ class PainterWidget(QWidget):
         self.step_label = QLabel('Iter: 0, Epoch: 0, MSE: 0')
         self.training = False
         self.generate = False
+        self.opt_while_train = True
 
 
         timeLine = QTimeLine(self.frames * 100, self)
@@ -180,6 +186,18 @@ class PainterWidget(QWidget):
             img = plt.imread('data/temp/temp.png')
             plt.imsave(fileName, img)
             print(f"Image saved as: {fileName}")
+    
+    def onOptimiseClick(self):
+        if self.parent.mainToolbar.optAct.isChecked():
+            self.parent.mainToolbar.widgetForAction(self.parent.mainToolbar.optAct).setStyleSheet("background-color : black")
+        else:
+            self.parent.mainToolbar.widgetForAction(self.parent.mainToolbar.optAct).setStyleSheet("background-color : white")
+        if not self.training:
+            self.opt_while_train = not self.opt_while_train
+        else:
+            self.worker.opt_whilst_train = not self.opt_while_train
+            self.opt_while_train = not self.opt_while_train
+
 
     def paintEvent(self, event):
         qp = QPainter(self)
@@ -251,6 +269,10 @@ class PainterWidget(QWidget):
         self.poly = []
         self.old_polys = []
         self.shape = self.parent.mainToolbar.selectorBox.currentText()
+        if self.shape == 'poly':
+            self.parent.mainToolbar.optAct.setVisible(True)
+        else:
+            self.parent.mainToolbar.optAct.setVisible(False)
         self.update()
 
     def onTrainClick(self, event):
@@ -347,7 +369,8 @@ class PainterWidget(QWidget):
                 
                 print(f'training with {c.n_phases} channels using image type {self.image_type} and net type conv resize')
                 self.worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, self.frames, overwrite)
-
+                self.worker.verbose = False
+                self.worker.opt_whilst_train = self.opt_while_train
                 
             self.thread = QThread()
             # Step 3: Create a worker object
@@ -385,7 +408,8 @@ class PainterWidget(QWidget):
     def progress(self, i, t, mse, wass):
         self.step_label.setText(f'Iter: {i}, Time: {t}, MSE: {mse:.2g}, Wass: {wass:.2g}')
         if self.shape=='poly':
-            self.timeline.start()
+            if self.worker.opt_whilst_train:
+                self.timeline.start()
         else:
             self.image = QPixmap("data/temp/temp.png")
             

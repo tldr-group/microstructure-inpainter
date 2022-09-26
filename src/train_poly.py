@@ -21,9 +21,6 @@ class PolyWorker(QObject):
         self.frames = frames
         self.quit_flag = False
         self.save_inpaint = self.c.opt_iters//self.frames
-        self.opt_whilst_train = not c.cli
-        self.verbose = not c.cli
-        # self.opt_whilst_train = False
 
 
     finished = pyqtSignal()
@@ -157,11 +154,13 @@ class PolyWorker(QObject):
                     
                 
                 else:
-                    print(f'Iter: {i}, Time: {t:.1f}, Wass: {abs(wass.item()):.2g}')
                     if c.wandb:
+                        print(f'Iter: {i}, Time: {t:.1f}, Wass: {abs(wass.item()):.2g}')
                         img = fake_data[0].permute(1,2,0).detach()
                         wandb.log({'wass':wass.item(), 'gp': gradient_penalty.item(), 
                         'raw out': wandb.Image(img.cpu().numpy())}, step=i)
+                    else:
+                        self.progress.emit(i, t, 0, abs(wass.item()))
 
                 
 
