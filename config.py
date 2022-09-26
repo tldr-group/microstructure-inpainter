@@ -1,14 +1,14 @@
 import json
 import torch
-
+import os
 class Config():
     """Config class
     """
-    def __init__(self, tag):
+    def __init__(self, tag, root=''):
         self.tag = tag
         self.cli = False
         # self.wandb = True
-        self.path = f'runs/{self.tag}'
+        self.path = os.path.join(root,f'runs/{self.tag}')
         self.cm = 'gray'
         self.data_path = ''
         self.mask_coords = []
@@ -72,8 +72,8 @@ class Config():
 
 
 class ConfigPoly(Config):
-    def __init__(self, tag):
-        super(ConfigPoly, self).__init__(tag)
+    def __init__(self, tag, root):
+        super(ConfigPoly, self).__init__(tag, root='')
         self.frames = 100
         # optimisation parameters
         if self.cli:

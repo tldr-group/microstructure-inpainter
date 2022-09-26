@@ -30,7 +30,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         
     if shape=='rect':
         # load config and command line arguments
-        c = Config(tag)
+        c = Config(tag, root)
         c.temp = temp
         c.root = str(root)
         c.data_path = path
@@ -74,7 +74,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             raise ValueError("Mode not recognised")
 
     elif shape == 'poly':
-        c = ConfigPoly(tag)
+        c = ConfigPoly(tag, root)
         c.data_path = path
         c.mask_coords = tuple(coords)
         c.image_type = image_type

@@ -301,7 +301,7 @@ class PainterWidget(QWidget):
                 y1 = int(y1*r.height()/h)
                 y2 = int(y2*r.height()/h)
 
-                c = Config(tag)
+                c = Config(tag, self.parent.root)
                 c.wandb = False
                 c.cli = False
                 c.data_path = self.img_path
@@ -330,7 +330,7 @@ class PainterWidget(QWidget):
             elif self.shape=='poly':
                 if len(self.old_polys) ==0:
                     self.training=False
-                c = ConfigPoly(tag)
+                c = ConfigPoly(tag, self.parent.root)
                 c.wandb = False
                 c.cli = False
                 c.data_path = self.img_path
@@ -425,7 +425,7 @@ class PainterWidget(QWidget):
         tag = self.tag
         overwrite = False
         if self.shape == 'rect':
-            c = Config(tag)
+            c = Config(tag, self.parent.root)
             c.load()
             original_img, nc = util.preprocess(self.parent.temp, self.image_type)
             netD, netG = make_nets(c, overwrite)
@@ -437,7 +437,7 @@ class PainterWidget(QWidget):
         elif self.shape == 'poly':
             if len(self.old_polys) ==0:
                     self.training=False
-            c = ConfigPoly(tag)
+            c = ConfigPoly(tag, self.parent.root)
             c.wandb = False
             c.cli = False
             c.data_path = self.img_path
@@ -482,15 +482,21 @@ class PainterWidget(QWidget):
         
 def clear_temp(root):
     folder = root / 'data/temp'
-    for filename in os.listdir(folder):
-        file_path = os.path.join(folder, filename)
+    if os.path.exists(folder):
+        for filename in os.listdir(folder):
+            file_path = os.path.join(folder, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print('Failed to delete %s. Reason: %s' % (file_path, e))
+    else:
         try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
+            os.mkdir(folder)
         except Exception as e:
-            print('Failed to delete %s. Reason: %s' % (file_path, e))
+            print('Failed to create temp folder %s. Reason: %s' % (file_path, e))
 
 def main():
 

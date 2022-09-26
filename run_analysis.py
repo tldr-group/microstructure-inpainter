@@ -27,7 +27,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
     
     if generate or metric_compare or z_span or seed_prop or (borders and tag1 != 'empty'):
 
-        c = Config(tag1)
+        c = Config(tag1, '')
         c.load()
 
         # Generate examples
