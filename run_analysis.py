@@ -19,7 +19,8 @@ import torch.nn as nn
 
 global_colours = ['#253659', '#04BF9D', '#F27457', '#C276C1', '#EBE57E']
 prop_cycler = cycler(color=global_colours)
-
+seed = 42
+torch.manual_seed(42)
 font = {'size': 8}
 matplotlib.rc('font', **font)
 
@@ -62,14 +63,14 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             if image_type=='grayscale':
                 gt = util.post_process(img[:,y1-delta_y:y2+delta_y, x1-delta_x:x2+delta_x].unsqueeze(0),c)[0].permute(1,2,0)
                 axGT.imshow(gt, cmap='gray')
-                rect_col = '#CC2825'
+                rect_col = global_colours[2]
             else:
                 gt = util.post_process(img[:,y1-delta_y:y2+delta_y, x1-delta_x:x2+delta_x].unsqueeze(0),c)[0].permute(1,2,0)
                 axGT.imshow(gt)
-                rect_col='#CC2825'
+                rect_col=global_colours[2]
             rect = Rectangle((delta_x, delta_y),lx,ly,linewidth=1,ls='--', edgecolor=rect_col,facecolor='none')
             axGT.add_patch(rect)
-            axGT.set_axis_off()
+            axGT.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
 
         real_list = []
         if metric_compare and not load:
@@ -90,7 +91,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
 
         # RECT
         if tag1 != 'empty':
-            c = Config(tag1)
+            c = Config(tag1, '')
             c.load()
             c.mask_coords = (x1, x2, y1, y2)
             overwrite = False
@@ -101,27 +102,39 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             worker.verbose = True
             if seed_prop:
                 netG = worker.netG()
-                s = 20
+                # device = torch.device(c.device_name if(
+                #     torch.cuda.is_available() and c.ngpu > 0) else "cpu")
+                # device = "cpu"
+                # netG = netG.to(device)
+                # if ('cuda' in str(device)) and (c.ngpu > 1):
+                #     netG = nn.DataParallel(netG, list(range(c.ngpu))).to(device)
+                # netG.load_state_dict(torch.load(f"{c.path}/Gen.pt"))
+                s = 16
+                epsilon = 0.01
                 plt.close('all')
                 noise = torch.randn(1, 100, s, s)
-                print(netG(torch.randn(1, 100, 4, 4)).shape)
+                print(noise.shape)
                 baseline = netG(noise)[0, 0]
                 print(baseline.shape)
-                for c in range(10):
+                mses = []
+                for c in range(s-10):
                     st = s//2-c
                     noise[:,:,st:-st,st:-st] = torch.randn(1, 100, c*2, c*2)
                     out = netG(noise)[0, 0]
+                    
                     mse = (out - baseline)**2
                     mse = torch.sum(mse, dim=1)
-                    print((mse>0.005).sum(), c*2)
-                    plt.plot(mse.detach(), label=c*2)
+                
+                    plt.plot(np.arange(55,step=1), mse.detach()[:55].flip(0), label=c*2, color=global_colours[c%5])
                 plt.legend()
-                plt.grid()
-                plt.xticks(np.arange(0, len(mse), 2))
+                plt.xticks(np.arange(0, len(mse)//2, 8))
+                plt.xlabel('x / pixels')
+                plt.ylabel('MSE')
                 plt.savefig('analysis/seed.png')
+                plt.savefig('analysis/seed.eps', transparent=True)
             if generate:
                 axRectAll = fig.add_subplot(gs[0,1:])
-                axRectAll.annotate('G opt.', xy=(1.15, 0.5), xytext=(0, 0),
+                axRectAll.annotate('G opt.', xy=(1.1, 0.5), xytext=(0, 0),
                         xycoords='axes fraction', textcoords='offset points',
                         size='large', ha='center', va='baseline')
                 axRectAll.set_axis_off()
@@ -131,7 +144,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                     p = util.post_process(img,c)[0].permute(1,2,0).numpy()
                     img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0))
                     axRECT.imshow(img, cmap='gray')
-                    axRECT.set_axis_off()
+                    axRECT.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
                     axRECT.set_title(f'Seed {i+1}')
                 fig.tight_layout()
                 fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
@@ -159,7 +172,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
         if tag2 != 'empty':
             # POLY
 
-            c = ConfigPoly(tag2)
+            c = ConfigPoly(tag2, '')
             c.load()
             # c.data_path = path
             # c.mask_coords = tuple([x1,x2,y1,y2])
@@ -213,7 +226,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
 
             if generate:
                 axPolyAll = fig.add_subplot(gs[1,1:])
-                axPolyAll.annotate('z opt.', xy=(1.15, 0.5), xytext=(0, 0),
+                axPolyAll.annotate('z opt.', xy=(1.1, 0.5), xytext=(0, 0),
                         xycoords='axes fraction', textcoords='offset points',
                         size='large', ha='center', va='baseline')
                 axPolyAll.set_axis_off()
@@ -222,7 +235,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                     img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=10000)
                     img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0).detach())
                     axPOLY.imshow(img, cmap='gray')
-                    axPOLY.set_axis_off()
+                    axPOLY.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
                     # axPOLY.set_title(f'Seed {i+1}')
                 fig.tight_layout()
                 plt.subplots_adjust(hspace=0)
@@ -277,7 +290,6 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             if borders:
                 poly_im = worker.generate()
                 poly_im_unopt = worker.generate(opt_iters=0)
-                # plot_border_analysis_specfic(tag1, tag2, c,rect_im.detach().cpu(),poly_im.detach().cpu())
                 border_contiguity_analysis(tag1, tag2, c, rect_im.detach().cpu(), poly_im.detach().cpu(), poly_im_unopt.detach().cpu())
 
 def inpaint(gt, im):
@@ -359,15 +371,15 @@ def plot_z_span(worker, tag2):
     ax_10000 = fig.add_subplot(gs[0,4])
     ax_mse = fig.add_subplot(gs[1,:])
     ax_0.imshow(im_0, cmap='gray')
-    ax_0.set_axis_off()
+    ax_0.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
     ax_10.imshow(im_10, cmap='gray')
-    ax_10.set_axis_off()
+    ax_10.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
     ax_100.imshow(im_100, cmap='gray')
-    ax_100.set_axis_off()
+    ax_100.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
     ax_1000.imshow(im_1000, cmap='gray')
-    ax_1000.set_axis_off()
+    ax_1000.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
     ax_10000.imshow(im_10000, cmap='gray')
-    ax_10000.set_axis_off()
+    ax_10000.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
     ax_mse.plot(mses, color=global_colours[0])
     for x,y in zip(saves_list, [mses[i] for i in saves_list]):
         ax_mse.plot(x,y, 'x', color=global_colours[2])
@@ -564,7 +576,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
             ax = fig.add_subplot(gs[:,a[0]])
         ax.imshow(d, cmap='gray')
         ax.set_title(n)
-        ax.set_axis_off()
+        ax.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
         plt.tight_layout()
         fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis_transparent.png', transparent=True)
         fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis.png')
@@ -624,7 +636,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
                 ax = fig.add_subplot(gs[:,a[0]])
             ax.imshow(d, cmap='gray')
             ax.set_title(n)
-            ax.set_axis_off()
+            ax.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
             plt.tight_layout()
             fig.savefig('analysis/border_contiguity_analysis.png')
             fig.savefig('analysis/border_contiguity_analysis_transparent.png', transparent=True)

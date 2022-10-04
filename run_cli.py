@@ -8,7 +8,7 @@ from config import Config, ConfigPoly
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.path import MPath
+from matplotlib.path import Path as MPath
 from src.util_cli import *
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
@@ -25,13 +25,13 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
     """
     print("Running in {} mode, tagged {}".format(mode, tag))
     root = Path(__file__).parent
-    temp = str(Path / "data/temp/temp.png")
+    temp_path = str(root / "data/temp/temp.png")
 
         
     if shape=='rect':
         # load config and command line arguments
         c = Config(tag, root)
-        c.temp = temp
+        c.temp_path = temp_path
         c.root = str(root)
         c.data_path = path
         c.mask_coords = tuple(coords)
@@ -76,6 +76,8 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
     elif shape == 'poly':
         c = ConfigPoly(tag, root)
         c.data_path = path
+        c.root = root
+        c.temp_path = temp_path
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True

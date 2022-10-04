@@ -132,7 +132,7 @@ class RectWorker(QObject):
                 output.backward(retain_graph=True)
                 optG.step()
 
-            # Every 50 iters log images and useful metrics
+            # Every 100 iters log images and useful metrics
             if i % 100 == 0:
                 netG.eval()
                 with torch.no_grad():
