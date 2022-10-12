@@ -1,8 +1,6 @@
-import pandas as pd
 from src.util import *
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
-import numpy as np
 import torch
 import torch.nn as nn
 import time
@@ -29,7 +27,7 @@ class RectWorker(QObject):
         self.quit_flag = True
 
 
-    def train(self):
+    def train(self, wandb=None):
         """[summary]
 
         :param c: [description]
@@ -60,7 +58,7 @@ class RectWorker(QObject):
         print(device, " will be used.\n")
         cudnn.benchmark = True
 
-        print(f"Data shape: {training_imgs.shape}")
+        print(f"Data shape: {training_imgs.shape}. Inpainting shape: {c.mask_size} Seed size: {c.img_seed_x, c.img_seed_y}")
 
         # Get train params
         l, batch_size, beta1, beta2, lrg, lr, Lambda, critic_iters, nz, = c.get_train_params()
@@ -68,9 +66,7 @@ class RectWorker(QObject):
         mask = mask.to(device)
         unmasked = unmasked.to(device)
         # init noise
-        # noise = torch.nn.Parameter(init_noise(1, nz, c, device))
         noise = init_noise(1, nz, c, device)
-        # optNoise = torch.optim.Adam([noise], lr=0.01,betas=(beta1, beta2))
         # Define Generator network
         netG = Gen().to(device)
         netD = Disc().to(device)
@@ -85,9 +81,7 @@ class RectWorker(QObject):
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
             noise = torch.load(f'{c.path}/noise.pt')
         if c.wandb:
-            wandb_init(tag, offline=False)
-            wandb.watch(netG)
-            wandb.watch(netD)
+            wandb.wandb_init(tag, netG, netD, offline=False)
         i=0
         t=0
         # start timing training
@@ -106,12 +100,12 @@ class RectWorker(QObject):
             d_noise = torch.randn_like(noise).to(device)
             fake_data = netG(d_noise).detach()
             # fake_data = crop(fake_data,dl)
-            real_data = batch_real(training_imgs, fake_data.shape[-1], batch_size, c.mask_coords).to(device)
+            real_data = batch_real(training_imgs, fake_data.shape[-2], fake_data.shape[-1], batch_size, c.mask_coords).to(device)
             # Train on real
             out_real = netD(real_data).mean()
             # train on fake images
             out_fake = netD(fake_data).mean()
-            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, fake_data.shape[-1], device, Lambda, nc)
+            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, fake_data.shape[-2], fake_data.shape[-1], device, Lambda, nc)
 
             # Compute the discriminator loss and backprop
             wass = out_fake - out_real
@@ -125,27 +119,20 @@ class RectWorker(QObject):
             # Generator training
             if (i % int(critic_iters)) == 0:
                 netG.zero_grad()
-                # optNoise.zero_grad()
                 noise_G = torch.randn_like(noise).to(device)
                 # Forward pass through G with noise vector
                 fake_data = netG(noise_G)
-                # output = -netD(crop(fake_data, dl, shift=True, prob=0.05)).mean()
                 output = -netD(fake_data).mean()
 
-                noise_G = make_noise(noise, device, mask_noise=True, delta=-1)
+                noise_G = make_noise(noise, device, mask_noise=True, delta=[-1,-1])
                 fake_data = netG(noise_G)
                 pw = pixel_wise_loss(fake_data, mask, unmasked, mode='mse', device=device)
                 output += pw*c.pw_coeff
                  # # Calculate loss for G and backprop
                 output.backward(retain_graph=True)
                 optG.step()
-                # optNoise.step()
 
-                # with torch.no_grad():
-                #     noise -= torch.tile(torch.mean(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-                #     noise /= torch.tile(torch.std(noise, dim=[1]).unsqueeze(1), (1, nz,1,1))
-
-            # Every 50 iters log images and useful metrics
+            # Every 100 iters log images and useful metrics
             if i % 100 == 0:
                 netG.eval()
                 with torch.no_grad():
@@ -163,7 +150,7 @@ class RectWorker(QObject):
                         end_overall = time.time()
                         t = end_overall-start_overall
                     if self.opt_whilst_train:
-                        plot_noise = make_noise(noise.detach().clone(), device, mask_noise=True, delta=-1)
+                        plot_noise = make_noise(noise.detach().clone(), device, mask_noise=True, delta=[-1,-1])
                         img = netG(plot_noise).detach()
                         pixmap = update_pixmap_rect(training_imgs, img, c)
                     
@@ -207,10 +194,10 @@ class RectWorker(QObject):
         with torch.no_grad():
             # delta is an int that dictates how much of the centre of the seed is random
             if delta is None:
-                if min(noise.shape[2:])<14:
+                if min(noise.shape[2:])<10:
                     mask_noise=False
                 else:
-                    delta = min(noise.shape[2:])-14
+                    delta = torch.tensor(noise.shape[2:])-10
                     mask_noise=True
             elif delta=='rand':
                 mask_noise=False

@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 from src import networks, util
 from src.train_rect import RectWorker
 from src.train_poly import PolyWorker
@@ -7,8 +8,8 @@ from config import Config, ConfigPoly
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.path import Path
-
+from matplotlib.path import Path as MPath
+from src.util_cli import *
 os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 def main(mode, tag, coords, path, image_type, shape, wandb):
@@ -23,26 +24,30 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
     :raises ValueError: [description]
     """
     print("Running in {} mode, tagged {}".format(mode, tag))
+    root = Path(__file__).parent
+    temp_path = str(root / "data/temp/temp.png")
 
         
     if shape=='rect':
         # load config and command line arguments
-        c = Config(tag)
+        c = Config(tag, root)
+        c.temp_path = temp_path
+        c.root = str(root)
         c.data_path = path
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
         c.wandb = bool(wandb)
         if mode=='train':
-            overwrite = util.check_existence(tag)
-            util.initialise_folders(tag, overwrite)
+            overwrite = util.check_existence(tag, root)
+            util.initialise_folders(tag, overwrite, root)
         else:
             overwrite = False
         # Pre-process the data and adjust the nets
         training_imgs, nc = util.preprocess(c.data_path, c.image_type)
-        mask, unmasked, dl, img_size, seed, c = util.make_mask(training_imgs, c)
+        mask, unmasked, img_size, seed, c = util.make_mask(training_imgs, c)
         c.seed_x, c.seed_y = int(seed[0].item()), int(seed[1].item())
-        c.dl, c.lx, c.ly = dl, int(img_size[0].item()), int(img_size[1].item())
+        c.lx, c.ly = int(img_size[0].item()), int(img_size[1].item())
         if c.image_type == 'n-phase':
             c.n_phases = nc
         elif c.image_type == 'colour':
@@ -51,7 +56,6 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             c.n_phases = 1
         
         if mode=='train':
-            # c = util.update_discriminator(c)
             c.update_params()
             c.save()
         else:
@@ -62,7 +66,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         worker = RectWorker(c, netG, netD, training_imgs, nc, mask, unmasked)
         worker.verbose = True
         if mode == 'train':
-            worker.train()
+            worker.train(wandb=wandbContainer())
         elif mode == 'generate':
             sp = 'out'
             worker.generate(save_path = sp)
@@ -70,8 +74,10 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
             raise ValueError("Mode not recognised")
 
     elif shape == 'poly':
-        c = ConfigPoly(tag)
+        c = ConfigPoly(tag, root)
         c.data_path = path
+        c.root = str(root)
+        c.temp_path = temp_path
         c.mask_coords = tuple(coords)
         c.image_type = image_type
         c.cli = True
@@ -92,7 +98,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         mask = np.zeros((h,w))
         poly_rects = []
         for poly in new_polys: 
-            p = Path(poly) # make a polygon
+            p = MPath(poly) # make a polygon
             grid = p.contains_points(points)
             mask += grid.reshape(h, w)
             xs, ys = [point[1] for point in poly], [point[0] for point in poly]
@@ -108,8 +114,8 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         seeds_mask[seeds_mask>1]=1
         real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
         if mode=='train':
-            overwrite = util.check_existence(tag)
-            util.initialise_folders(tag, overwrite)
+            overwrite = util.check_existence(tag, root)
+            util.initialise_folders(tag, overwrite, root)
         else:
             overwrite = False
         if c.image_type == 'n-phase':
@@ -122,8 +128,9 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         netD, netG = networks.make_nets(c, overwrite)
         worker = PolyWorker(c, netG, netD, real_seeds, mask, poly_rects, c.frames, overwrite)
         worker.verbose = True
+        worker.opt_whilst_train = False
         if mode == 'train':
-            worker.train()
+            worker.train(wandb=wandbContainer())
         elif mode == 'generate':
             worker.generate()
     else:

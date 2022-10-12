@@ -1,14 +1,14 @@
 import json
-
-
+import torch
+import os
 class Config():
     """Config class
     """
-    def __init__(self, tag):
+    def __init__(self, tag, root=''):
         self.tag = tag
         self.cli = False
         # self.wandb = True
-        self.path = f'runs/{self.tag}'
+        self.path = os.path.join(root,f'runs/{self.tag}')
         self.cm = 'gray'
         self.data_path = ''
         self.mask_coords = []
@@ -20,16 +20,16 @@ class Config():
         self.batch_size = 4
         self.beta1 = 0.9
         self.beta2 = 0.999
-        self.max_iters = 100e3
-        self.timeout = 60*60*12
+        self.max_iters = 400e3
+        self.timeout = 1e12
         self.lrg = 0.0005
         self.lr = 0.0005
         self.Lambda = 10
         self.critic_iters = 10
         self.pw_coeff = 1
-        self.ngpu = 1
+        self.ngpu = torch.cuda.device_count()
         if self.ngpu > 0:
-            self.device_name = "cuda:1"
+            self.device_name = "cuda:0"
         else:
             self.device_name = 'cpu'
         self.conv_resize = True
@@ -72,11 +72,14 @@ class Config():
 
 
 class ConfigPoly(Config):
-    def __init__(self, tag):
-        super(ConfigPoly, self).__init__(tag)
+    def __init__(self, tag, root):
+        super(ConfigPoly, self).__init__(tag, root='')
         self.frames = 100
         # optimisation parameters
-        self.opt_iters = 10000
+        if self.cli:
+            self.opt_iters = 10000
+        else:
+            self.opt_iters = 1000
         self.opt_lr = 0.001
         # if self.image_type=='colour':
         self.opt_kl_coeff = 0.00001
