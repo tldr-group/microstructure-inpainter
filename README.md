@@ -1,7 +1,7 @@
 # Microstructure Inpainter
 
 <p align="center">
-<img src="assets/inpainting-logo.png" alt="inpainting-logo" width="400px"/>
+<img src="assets/movie.gif" alt="inpainting-movie" width="400px"/>
 </p>
 
 Microstructure inpainter is a python app for inpainting material science microstructural images using GANs. The app can be run via a command line interface or a graphical interface. Although the GANs can be trained on CPU, GPU training is advised.
