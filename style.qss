@@ -1,36 +1,49 @@
 * {
-	font-size:13px;
-	color:#c1c1c1;
-	font-family:"Helvetica";
-	background:black;
+	font-size:14px;
+	color:#FAFAFA;
+	font-family:"Arial";
+	background:#242424;
 }
 
 
 QToolBar { 
-    background-color: black;
+    background-color: #242424;
     border: none;
+    font-family:"Arial Black";
 }
 
 QToolButton {
-    background:white;
-    color:black;
+    background:#FAFAFA;
+    color:#242424;
     margin: 5px;
     margin-top: 12px;
     margin-bottom: 12px;
-    padding: 7px;
-    border-radius: 2px;
-    border: 2px;
-
+    padding: 5px;
+    border-radius: 3px;
+    font-family:"Arial Black";
 }
 
 QPushButton {
-    background:white;
-    color:black;
+    background:#FAFAFA;
+    color:#242424;
     margin: 5px;
     margin-top: 12px;
     margin-bottom: 12px;
-    padding: 7px;
-    border-radius: 2px;
-    border: 2px;
+    padding: 5px;
+    border-radius: 3px;
+    font-family:"Arial Black";
+}
+
+QToolButton {
+    background:#FAFAFA;
+    color:#242424;
+    margin: 5px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    padding: 5px;
+    border-radius: 3px;
+    font-family:"Arial Black";
 
 }
+
+

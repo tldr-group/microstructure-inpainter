@@ -5,6 +5,8 @@ runs
 wandb
 optim
 data/temp*
-*png
 *json
 analysis
+build
+dist
+.DS_Store

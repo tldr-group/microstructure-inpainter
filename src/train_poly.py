@@ -4,7 +4,6 @@ import torch.optim as optim
 import numpy as np
 import torch
 import torch.nn as nn
-import tifffile
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
 from copy import deepcopy
@@ -22,8 +21,6 @@ class PolyWorker(QObject):
         self.frames = frames
         self.quit_flag = False
         self.save_inpaint = self.c.opt_iters//self.frames
-        self.opt_whilst_train = not c.cli
-        # self.opt_whilst_train = False
 
 
     finished = pyqtSignal()
@@ -32,7 +29,7 @@ class PolyWorker(QObject):
     def stop(self):
         self.quit_flag = True
 
-    def train(self):
+    def train(self, wandb=None):
         """[summary]
 
         :param c: [description]
@@ -50,7 +47,6 @@ class PolyWorker(QObject):
         netG = self.netG 
         netD = self.netD
         real_seeds = self.real_seeds
-        poly_rects = self.poly_rects 
         mask = self.mask
         overwrite = self.overwrite 
         offline=True
@@ -83,16 +79,10 @@ class PolyWorker(QObject):
             netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
         
         if c.wandb:
-            wandb_init(tag, offline=False)
-            wandb.watch(netG)
-            wandb.watch(netD)
+            wandb.wandb_init(tag, netG, netD, offline=False)
 
         i=0
         t = 0
-        mses = []
-        iter_list = []
-        time_list = []
-        wass_list = []
 
         # start timing training
         if ('cuda' in str(device)) and (ngpu > 1):
@@ -103,8 +93,7 @@ class PolyWorker(QObject):
             start_overall = time.time()
         
         converged = False
-        converged_list = []
-
+        
         while not self.quit_flag and not converged and t<c.timeout and i<c.max_iters:
             # Discriminator Training
             netD.zero_grad()
@@ -116,7 +105,7 @@ class PolyWorker(QObject):
             out_real = netD(real_data).mean()
             # train on fake images
             out_fake = netD(fake_data).mean()
-            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, Lambda, nc)
+            gradient_penalty = calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, l, device, Lambda, nc)
             wass = out_fake - out_real
             # Compute the discriminator loss and backprop
             disc_cost = wass + gradient_penalty
@@ -152,7 +141,7 @@ class PolyWorker(QObject):
                     end_overall = time.time()
                     t = end_overall-start_overall
                 if self.opt_whilst_train:
-                    mse, img, inpaint = self.inpaint(netG, device=device, opt_iters=self.opt_iters)
+                    mse, img, inpaint = self.inpaint(netG, device=device, opt_iters=self.c.opt_iters)
 
                     if c.cli:
                         print(f'Iter: {i}, Time: {t:.1f}, MSE: {mse:.2g}, Wass: {abs(wass.item()):.2g}')
@@ -163,18 +152,15 @@ class PolyWorker(QObject):
                     else:
                         self.progress.emit(i, t, mse, abs(wass.item()))
                     
-                    time_list.append(t)
-                    mses.append(mse)
-                    wass_list.append(abs(wass.item()))
-                    iter_list.append(i)
-                    df = pd.DataFrame({'MSE': mses, 'iters': iter_list, 'mse': mses, 'time': time_list, 'wass': wass_list})
-                    df.to_pickle(f'runs/{tag}/metrics.pkl')
+                
                 else:
-                    print(f'Iter: {i}, Time: {t:.1f}, Wass: {abs(wass.item()):.2g}')
                     if c.wandb:
+                        print(f'Iter: {i}, Time: {t:.1f}, Wass: {abs(wass.item()):.2g}')
                         img = fake_data[0].permute(1,2,0).detach()
                         wandb.log({'wass':wass.item(), 'gp': gradient_penalty.item(), 
                         'raw out': wandb.Image(img.cpu().numpy())}, step=i)
+                    else:
+                        self.progress.emit(i, t, 0, abs(wass.item()))
 
                 
 
@@ -201,14 +187,14 @@ class PolyWorker(QObject):
             x0, y0, x1, y1 = (int(i) for i in rect)
             w, h = x1-x0, y1-y0
             w_init, h_init = w,h
-            # x1 += 32 - w%32
-            # y1 += 32 - h%32
-            w, h = x1-x0, y1-y0
+            lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
+            w, h = calculate_size_from_seed(torch.tensor([lx,ly]), self.c)
+            x1 = x0 + w
+            y1 = y0 + h
             im_crop = img[:, x0-16:x1+16, y0-16:y1+16]
             mask_crop = self.mask[x0-16:x1+16, y0-16:y1+16]
-            c, w, h = im_crop.shape
-            lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
-            inpaints, mse, raw = self.optimise_noise(lx, ly, im_crop, mask_crop, netG, device, opt_iters=opt_iters)
+            # lx, ly = calculate_seed_from_size(torch.tensor([w,h]), self.c)
+            inpaints, mse, raw = self.optimise_noise(lx+4, ly+4, im_crop, mask_crop, netG, device, opt_iters=opt_iters)
             for fimg, inpaint in enumerate(inpaints):
                 final_imgs[fimg][x0:x1,  y0:y1] = inpaint
         for i, final_img in enumerate(final_imgs):
@@ -216,16 +202,17 @@ class PolyWorker(QObject):
                 final_img[self.mask==0] = final_img_fresh[self.mask==0]
                 final_img = (final_img.numpy()/final_img.max())
                 out = np.stack([final_img for i in range(3)], -1)
-                plt.imsave(f'data/temp/temp{i}.png', out)
+                plt.imsave(os.path.join(self.c.root,f'data/temp/temp{i}.png'), out)
             else:
                 for ch in range(self.c.n_phases):    
                     final_img[:,:,ch][self.mask==0] = final_img_fresh[:,:,ch][self.mask==0]
                 if self.c.image_type=='colour':
                     out = final_img.numpy()
-                    plt.imsave(f'data/temp/temp{i}.png', out)
+                    plt.imsave(os.path.join(self.c.root,f'data/temp/temp{i}.png'), out)
                 elif self.c.image_type=='grayscale':
                     out = np.concatenate([final_img for i in range(3)], -1)
-                    plt.imsave(f'data/temp/temp{i}.png', out)
+                    plt.imsave(os.path.join(self.c.root,f'data/temp/temp{i}.png'), out)
+        plt.imsave(f'data/temp/temp.png', out)
         if save_path:
             fig, ax = plt.subplots()
             final_img = final_imgs[-1]
@@ -270,8 +257,6 @@ class PolyWorker(QObject):
         target = img.to(device)
         for ch in range(self.c.n_phases):
             target[ch][mask==1] = -1
-        # plt.imsave('test2.png', torch.cat([target.permute(1,2,0) for i in range(3)], -1).cpu().numpy())
-        # plt.imsave('test.png', np.stack([mask for i in range(3)], -1))
         bs = 1
         target = target.unsqueeze(0)
         target = torch.tile(target, (bs, 1, 1,1))

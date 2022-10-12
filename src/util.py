@@ -1,18 +1,14 @@
 import numpy as np
-import pandas as pd
 import torch
 from torch import autograd
-import wandb
-from dotenv import load_dotenv
 import os
-import subprocess
-import shutil
+
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import cm
 from matplotlib.patches import Rectangle
 
 # check for existing models and folders
-def check_existence(tag):
+def check_existence(tag,root):
     """Checks if model exists, then asks for user input. Returns True for overwrite, False for load.
 
     :param tag: [description]
@@ -22,9 +18,8 @@ def check_existence(tag):
     :return: True for overwrite, False for load
     :rtype: [type]
     """
-    root = f'runs/{tag}'
-    check_D = os.path.exists(f'{root}/Disc.pt')
-    check_G = os.path.exists(f'{root}/Gen.pt')
+    check_D = os.path.exists(f'{root}/runs/{tag}/Disc.pt')
+    check_G = os.path.exists(f'{root}/runs/{tag}/Gen.pt')
     if check_G or check_D:
         print(f'Models already exist for tag {tag}.')
         x = input("To overwrite existing model enter 'o', to load existing model enter 'l' or to cancel enter 'c'.\n")
@@ -42,7 +37,7 @@ def check_existence(tag):
 
 
 # set-up util
-def initialise_folders(tag, overwrite):
+def initialise_folders(tag, overwrite, root):
     """[summary]
 
     :param tag: [description]
@@ -50,66 +45,14 @@ def initialise_folders(tag, overwrite):
     """
     if overwrite:
         try:
-            os.mkdir(f'runs')
+            os.mkdir(f'{root}/runs')
         except:
             pass
         try:
-            os.mkdir(f'runs/{tag}')
+            os.mkdir(f'{root}/runs/{tag}')
         except:
             pass
 
-def wandb_init(name, offline):
-    """[summary]
-
-    :param name: [description]
-    :type name: [type]
-    :param offline: [description]
-    :type offline: [type]
-    """
-    if offline:
-        mode = 'disabled'
-    else:
-        mode = None
-    load_dotenv(os.path.join(os.getcwd(), '.env'))
-    API_KEY = os.getenv('WANDB_API_KEY')
-    ENTITY = os.getenv('WANDB_ENTITY')
-    PROJECT = os.getenv('WANDB_PROJECT')
-    if API_KEY is None or ENTITY is None or PROJECT is None:
-        raise AssertionError('.env file arguments missing. Make sure WANDB_API_KEY, WANDB_ENTITY and WANDB_PROJECT are present.')
-    print("Logging into W and B using API key {}".format(API_KEY))
-    process = subprocess.run(["wandb", "login", API_KEY], capture_output=True)
-    print("stderr:", process.stderr)
-
-    
-    print('initing')
-    wandb.init(entity=ENTITY, name=name, project=PROJECT, mode=mode)
-
-    wandb_config = {
-        'active': True,
-        'api_key': API_KEY,
-        'entity': ENTITY,
-        'project': PROJECT,
-        # 'watch_called': False,
-        'no_cuda': False,
-        # 'seed': 42,
-        'log_interval': 1000,
-
-    }
-    # wandb.watch_called = wandb_config['watch_called']
-    wandb.config.no_cuda = wandb_config['no_cuda']
-    # wandb.config.seed = wandb_config['seed']
-    wandb.config.log_interval = wandb_config['log_interval']
-
-def wandb_save_models(fn):
-    """[summary]
-
-    :param pth: [description]
-    :type pth: [type]
-    :param fn: [description]
-    :type fn: filename
-    """
-    shutil.copy(fn, os.path.join(wandb.run.dir, fn))
-    wandb.save(fn)
 
 # training util
 def preprocess(data_path, imtype, load=True):
@@ -185,15 +128,11 @@ def make_mask(training_imgs, c):
 
     # seed for size of inpainting region
     seed = calculate_seed_from_size(torch.tensor([xdiff, ydiff]).to(int), c)
-    # add 1 seed to each side to make the MSE region, the total G region
+    # add 2 seed to each side to make the MSE region, the total G region
     img_seed = seed+4
     G_out_size = calculate_size_from_seed(img_seed, c)
     mask_size = calculate_size_from_seed(seed, c)
     # THIS IS WHERE WE TELL D WHAT SIZE TO BE
-    # Discriminated region will be half the size of the minimum length of the inpainting region
-    # D_size_dim = int(torch.div(mask_size.min(),64, rounding_mode='floor'))*16
-    D_size_dim = G_out_size[0].item()
-    # D_seed = calculate_seed_from_size(torch.tensor([D_size_dim, D_size_dim]).to(int), c)
     D_seed = img_seed
     x2, y2 = x1+mask_size[0].item(), y1+mask_size[1].item()
     xmid, ymid = (x2+x1)//2, (y2+y1)//2
@@ -213,42 +152,9 @@ def make_mask(training_imgs, c):
     c.mask_size = (mask_size[0].item(), mask_size[1].item())
     c.D_seed_x = D_seed[0].item()
     c.D_seed_y = D_seed[1].item()
-    return mask, unmasked, D_size_dim, G_out_size, img_seed, c
-
-def update_discriminator(c):
-    out = c.dl
-    layer = 0
-    dk = [4]
-    dp = [1]
-    ds = [2]
-    df = [c.n_phases]
-    while out != 1:
-        out_check = int(np.floor((out+2*dp[layer]-dk[layer])/ds[layer]+1))
-        if out_check>1:
-            out = out_check
-            dk.append(4)
-            ds.append(2)
-            dp.append(1)
-            df.append(int(np.min([2**(layer+6), 1024])))
-            layer += 1
-        elif out_check<1:
-            dp[layer] = int(round((2+dk[layer]-out)/2))
-        else:
-            out = out_check
-    df.append(1)
-    c.df = df
-    c.dk = dk
-    c.ds = ds
-    c.dp = dp
-    return c
+    return mask, unmasked, G_out_size, img_seed, c
 
 def update_pixmap_rect(raw, img, c, save_path=None, border=False):
-    # fig, ax = plt.subplots(211)
-    # ax[0].imshow(img[0,0].detach().cpu().numpy())
-    # ax[1].imshow(img[0,1].detach().cpu().numpy())
-    # plt.imshow(img[0].cpu().permute(1,2,0).numpy())
-    # plt.savefig('data/temp/raw.png')
-    # plt.close()
     updated_pixmap = raw.clone().unsqueeze(0)
     x1, x2, y1, y2 = c.mask_coords
     lx, ly = c.mask_size
@@ -277,18 +183,18 @@ def update_pixmap_rect(raw, img, c, save_path=None, border=False):
         plt.savefig('data/temp/temp_fig.png', transparent=True, pad_inches=0)
         plt.close()
         if c.image_type == 'grayscale':
-            plt.imsave('data/temp/temp.png', np.concatenate([pm for i in range(3)], -1))
+            plt.imsave(c.temp_path, np.concatenate([pm for i in range(3)], -1))
         else:
-            plt.imsave('data/temp/temp.png', pm)
+            plt.imsave(c.temp_path, pm)
         return fig
     else:
         if c.image_type == 'grayscale':
             pm = np.concatenate([pm for i in range(3)], -1)
-        plt.imsave('data/temp/temp.png', pm)
+        plt.imsave(c.temp_path, pm)
         return pm
     
 
-def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_lambda, nc):
+def calc_gradient_penalty(netD, real_data, fake_data, batch_size, lx, ly, device, gp_lambda, nc):
     """[summary]
 
     :param netD: [description]
@@ -313,7 +219,7 @@ def calc_gradient_penalty(netD, real_data, fake_data, batch_size, l, device, gp_
     alpha = torch.rand(batch_size, 1)
     alpha = alpha.expand(batch_size, int(
         real_data.nelement() / batch_size)).contiguous()
-    alpha = alpha.view(batch_size, nc, l, l)
+    alpha = alpha.view(batch_size, nc, lx, ly)
     alpha = alpha.to(device)
 
     interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
@@ -339,7 +245,7 @@ def batch_real_poly(img, l, bs, real_seeds):
         data[i] = img[:, x:x+l, y:y+l]
     return data
 
-def batch_real(img, l, bs, mask_coords):
+def batch_real(img, lx, ly, bs, mask_coords):
     """[summary]
     :param training_imgs: [description]
     :type training_imgs: [type]
@@ -348,12 +254,12 @@ def batch_real(img, l, bs, mask_coords):
     """
     x1, x2, y1, y2 = mask_coords
     n_ph, x_max, y_max = img.shape
-    data = torch.zeros((bs, n_ph, l, l))
+    data = torch.zeros((bs, n_ph, lx, ly))
     for i in range(bs):
-        x, y = torch.randint(x_max - l, (1,)), torch.randint(y_max - l, (1,))
-        while (x1<x+l and x1>x-l) and (y1<y+l and y1>y-l):
-            x, y = torch.randint(x_max - l, (1,)), torch.randint(y_max - l, (1,))
-        data[i] = img[:, x:x+l, y:y+l]
+        x, y = torch.randint(x_max - lx, (1,)), torch.randint(y_max - ly, (1,))
+        while (x1<x+lx and x1>x-lx) and (y1<y+ly and y1>y-ly):
+            x, y = torch.randint(x_max - lx, (1,)), torch.randint(y_max - ly, (1,))
+        data[i] = img[:, x:x+lx, y:y+ly]
     return data
 
 def pixel_wise_loss(fake_img, real_img, unmasked, mode='mse', device=None):
@@ -416,20 +322,24 @@ def init_noise(batch_size, nz, c, device):
     noise.requires_grad = True
     return noise
 
-def make_noise(noise, device, mask_noise=False, delta=1):
+def make_noise(noise, device, mask_noise=False, delta=[1,1]):
     # zeros in mask are fixed, ones are random
     mask = torch.zeros_like(noise).to(device)
     _, _, x, y = mask.shape
-    # 
     if mask_noise:
-        if delta>0:
-            mask[:,:,x//2-delta:x//2+delta,y//2-delta:y//2+delta] = 1
-        elif delta==0:
-            mask[:,:,x//2,y//2] = 1
+        dx = torch.div(delta[0],2, rounding_mode='floor')
+        dy = torch.div(delta[1],2, rounding_mode='floor')
+        if dx>0 and dy>0:
+            mask[:,:,x//2-dx:x//2+dx,y//2-dy:y//2+dy] = 1
+        elif dx==0:
+            mask[:,:,x//2,y//2-dy:y//2+dy] = 1
+        elif dy==0:
+            mask[:,:,x//2-dx:x//2+dx,y//2] = 1
         rand = torch.randn_like(noise).to(device)*mask
         noise = noise*(mask==0)+rand
     else:
         noise = torch.randn_like(noise).to(device)
-    # plt.imshow(mask[0,0].detach().cpu().numpy())
-    # plt.savefig('noise.png')
     return noise
+
+def rgb2gray(rgb):
+    return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
