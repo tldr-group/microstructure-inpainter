@@ -76,7 +76,7 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
     elif shape == 'poly':
         c = ConfigPoly(tag, root)
         c.data_path = path
-        c.root = root
+        c.root = str(root)
         c.temp_path = temp_path
         c.mask_coords = tuple(coords)
         c.image_type = image_type
@@ -114,8 +114,8 @@ def main(mode, tag, coords, path, image_type, shape, wandb):
         seeds_mask[seeds_mask>1]=1
         real_seeds = np.where(seeds_mask[:-c.l, :-c.l]==0)
         if mode=='train':
-            overwrite = util.check_existence(tag)
-            util.initialise_folders(tag, overwrite)
+            overwrite = util.check_existence(tag, root)
+            util.initialise_folders(tag, overwrite, root)
         else:
             overwrite = False
         if c.image_type == 'n-phase':
