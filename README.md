@@ -1,31 +1,14 @@
 # Microstructure Inpainter
 
-Cloned from GAN boilerplate...
+<p align="center">
+<img src="assets/inpainting-logo.png" alt="inpainting-logo" width="400px"/>
+</p>
 
-## Folder structure
-
-```
-GAN-boilerplate
- ┣ src
- ┃ ┣ __init__.py
- ┃ ┣ networks.py
- ┃ ┣ postprocessing.py
- ┃ ┣ preprocessing.py
- ┃ ┣ test.py
- ┃ ┣ train.py
- ┃ ┗ util.py
- ┣ data
- ┃ ┗ example.png
- ┣ .gitignore
- ┣ config.py
- ┣ main.py
- ┣ README.md
- ┗ requirements.txt
-```
+Microstructure inpainter is a python app for inpainting material science microstructural images using GANs. The app can be run via a command line interface or a graphical interface. Although the GANs can be trained on CPU, GPU training is advised.
 
 ## Quickstart
 
-For the repository.
+To run locally.
 
 Prerequisites:
 
@@ -37,13 +20,13 @@ Create a new conda environment, activate and install pytorch
 _Note: cudatoolkit version and pytorch install depends on system, see [PyTorch install](https://pytorch.org/get-started/locally/) for more info._
 
 ```
-conda create --name gan-boilerplate
-conda activate gan-boilerplate
+conda create --name inpainter
+conda activate inpainter
 conda install pytorch torchvision -c pytorch
 conda install -r requirements.txt
 ```
 
-Create a .env file to hold secrets, the .env file must include
+If you are planning to use Weights and Biases to track training runs create a .env file to hold secrets, the .env file must include
 
 ```
 WANDB_API_KEY=
@@ -51,28 +34,28 @@ WANDB_ENTITY=
 WANDB_PROJECT=
 ```
 
-You are now ready to run the repo. To start training
+You are now ready to run the repo. To run the GUI
 
 ```
-python main.py train -t test-run
+python run_gui.py
 ```
 
-This will track your run online with Weights and Biases and name your training run `test-run`. To run in offline mode
+Alternatively, to start training a model using the CLI, use the following command
 
 ```
-python main.py train -t test-run -o
+python run_cli.py train -t <name> -c <x1 x2 y1 y2> -p <path/to/data> -i <image_type> -s <method> -w <WANDB>
+```
+
+`-t` takes the name of the training run, `-c` takes the coordinate values as a vector of 4 numbers representing the corners of a rectangle, `-p` takes the path to the data, `-i` takes the image type `(n-phase, grayscale, colour)`, `-s` takes the method name `(rect, poly)`, `-w` takes a boolean whether to track run with Weights and Biases. For example,
+
+```
+python run_cli.py train -t test -c <360 440 360 440> -p <data/example_inpainting.png> -i n-phase -s rect -w False
 ```
 
 To generate samples from a trained generator
 
 ```
-python main.py generate -t test-run
-```
-
-To run unit tests
-
-```
-python main.py test
+python run_cli.py generate -t test -c <360 440 360 440> -p <data/example_inpainting.png> -i n-phase -s rect -w False
 ```
 
 ## Saving, loading and overwriting models
@@ -99,10 +82,38 @@ By entering `'o'` you will overwrite the existing models, deleting their saved p
 
 When evaluating a trained model, the params and model config are loaded from files. Models are saved with their training tag, use this tag to evaluate specific models.
 
-## TODO
+## Folder structure
 
-- [x] Quickstart
-- [x] Saving and loading models
-- [ ] Training outputs
-- [ ] Network architectures
-- [ ] wandb
+```
+microstructure-inpainter
+ ┣ src
+ ┃ ┣ __init__.py
+ ┃ ┣ networks.py
+ ┃ ┣ test.py
+ ┃ ┣ train_poly.py
+ ┃ ┣ train_rect.py
+ ┃ ┣ util_cli.py
+ ┃ ┗ util.py
+ ┣ data
+ ┃ ┣ example_inpainting.png
+ ┃ ┣ sofc.png
+ ┃ ┣ steel_micro237.png
+ ┃ ┗ terracotta_micro177.png
+ ┣ assets
+ ┃ ┣ ariblk.ttf
+ ┃ ┣ gif.py
+ ┃ ┣ inpainting-logo.png
+ ┃ ┗ movie.gif
+ ┣ .gitignore
+ ┣ config.py
+ ┣ build_pyi.py
+ ┣ build_pyi_mac.spec
+ ┣ build_pyi_ubuntu.spec
+ ┣ LICENSE.txt
+ ┣ run_analysis.py
+ ┣ run_cli.py
+ ┣ run_gui.py
+ ┣ README.md
+ ┣ style.qss
+ ┗ requirements.txt
+```
