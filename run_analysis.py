@@ -1,10 +1,12 @@
 import argparse
 import json
-from matplotlib.gridspec import GridSpec
+import random
+import matplotlib.gridspec as gridspec
 import numpy as np
 import pandas as pd
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import cm
 from matplotlib.path import Path
 from matplotlib.patches import Rectangle
 import matplotlib.patches as mpatches
@@ -20,7 +22,10 @@ import torch.nn as nn
 global_colours = ['#253659', '#04BF9D', '#F27457', '#C276C1', '#EBE57E']
 prop_cycler = cycler(color=global_colours)
 seed = 42
-torch.manual_seed(42)
+random.seed(seed)
+np.random.seed(seed)
+torch.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)
 font = {'size': 8}
 matplotlib.rc('font', **font)
 
@@ -48,29 +53,63 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             fig = plt.figure()
             # fig.suptitle(f"{tag1} - {tag2}")
             if tag1 =='empty' or tag2 == 'empty':
-                gs = GridSpec(1,3)
+                gs = gridspec.GridSpec(1,3)
                 if tag1 == 'empty':
                     tag2_index = 0
                 else:
                     tag1_index = 0
             else:
-                gs = GridSpec(2,3)
+                spacing=0.015
+                gs = gridspec.GridSpec(2,4)
+                # gs.update(left=5*spacing,right=3/5-spacing, top=0.8, bottom=0.2)
+                gs.update(top=0.8, bottom=0.2)
                 tag1_index = 0
                 tag2_index = 1
-            axGT = fig.add_subplot(gs[:,0])
-            axGT.set_title("Ground truth")
-            # ax.imshow(np.stack([img for i in range(3)], -1))
-            if image_type=='grayscale':
-                gt = util.post_process(img[:,y1-delta_y:y2+delta_y, x1-delta_x:x2+delta_x].unsqueeze(0),c)[0].permute(1,2,0)
-                axGT.imshow(gt, cmap='gray')
-                rect_col = global_colours[2]
+            
+            axIM = fig.add_subplot(gs[:,:2])
+            axIM.set_title("Ground truth data")
+            zoom_factor = 6
+            # axGT = fig.add_subplot(gs[:,2])
+            # axGT.set_title("Inpaint region")
+            # gsDATA = gridspec.GridSpec(2, 2, hspace=0)
+            # gsDATA.update(left=3/5+spacing, right=1-5*spacing, top=0.725, bottom=0.275)
+            gsDATA = gridspec.GridSpec(2, 2)
+            # gsDATA.update(left=3/5+spacing, right=1-5*spacing, top=0.725, bottom=0.275)
+            gsDATA.update(left=1/2+spacing*2, right=1-5*spacing, top=0.748, bottom=0.252, wspace=0.09)
+            # calculate sizes for ground truth data
+            dly = (y2-y1) + zoom_factor*delta_y*2
+            dlx = (x2-x1) + zoom_factor*delta_x*2
+            dy1 = max([y1-delta_y*zoom_factor,0])
+            dx1 = max([x1-delta_x*zoom_factor,0])
+            if dy1==0:
+                dy2 = dy1 + dly
             else:
+                dy2 = min([y2+delta_y*zoom_factor,img.shape[1]-1])
+                dy1 = dy2-dly
+            if dx1==0:
+                dx2 = dx1 + dlx
+            else:
+                dx2 = min([x2+delta_x*zoom_factor,img.shape[2]-1])
+                dx1 = dx2-dlx
+            rect_col='#3A548A'
+            if image_type=='grayscale':
+                gt_whole = util.post_process(img[:,dy1:dy2, dx1:dx2].unsqueeze(0),c)[0].permute(1,2,0)
                 gt = util.post_process(img[:,y1-delta_y:y2+delta_y, x1-delta_x:x2+delta_x].unsqueeze(0),c)[0].permute(1,2,0)
-                axGT.imshow(gt)
-                rect_col=global_colours[2]
-            rect = Rectangle((delta_x, delta_y),lx,ly,linewidth=1,ls='--', edgecolor=rect_col,facecolor='none')
-            axGT.add_patch(rect)
-            axGT.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
+                # axGT.imshow(gt, cmap='gray')
+                axIM.imshow(gt_whole, cmap='gray')
+            else:
+                gt_whole = util.post_process(img[:,dy1:dy2, dx1:dx2].unsqueeze(0),c)[0].permute(1,2,0)
+                gt = util.post_process(img[:,y1-delta_y:y2+delta_y, x1-delta_x:x2+delta_x].unsqueeze(0),c)[0].permute(1,2,0)
+                # axGT.imshow(gt)
+                axIM.imshow(gt_whole)
+            # rectGT = Rectangle((delta_x, delta_y),lx,ly,linewidth=1,ls='--', edgecolor=rect_col,facecolor='none')
+            rectIM = Rectangle((x1-dx1, y1-dy1),lx,ly,linewidth=1,ls='-', edgecolor=rect_col,facecolor='none')
+            rectIM_border = Rectangle((x1-dx1-16, y1-dy1-16),lx+32,ly+32,linewidth=2,ls='-', edgecolor=rect_col,facecolor='none')
+            # axGT.add_patch(rectGT)
+            axIM.add_patch(rectIM)
+            axIM.add_patch(rectIM_border)
+            # axGT.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
+            axIM.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
 
         real_list = []
         if metric_compare and not load:
@@ -78,13 +117,23 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                 x = np.random.randint(0,img.shape[1]-lx)
                 y = np.random.randint(0,img.shape[2]-ly)
                 im = img[:, x:x+lx, y:y+ly]
-                vfs = ()
+                if c.image_type == 'n-phase':
+                    vfs = ()
+                    for p in range(n_phases):
+                        vfs = vfs + (im[p].mean().item(),)
+                    real_list.append(vfs)
+                elif c.image_type == 'grayscale':
+                    real_list.append(im.flatten().tolist())
+                elif c.image_type == 'colour':
+                    real_list.append(util.rgb2gray(im.permute(1,2,0)).flatten().tolist())
+
+            if c.image_type == 'n-phase':   
+                real_vfs = ()
                 for p in range(n_phases):
-                    vfs = vfs + (im[p].mean().item(),)
-                real_list.append(vfs)
-            real_vfs = ()
-            for p in range(n_phases):
-                    real_vfs = real_vfs + (img[p].mean().item(),)
+                        real_vfs = real_vfs + (img[p].mean().item(),)
+            else:
+                pass
+
                     
                 
             
@@ -102,21 +151,10 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
             worker.verbose = True
             if seed_prop:
                 netG = worker.netG()
-                # device = torch.device(c.device_name if(
-                #     torch.cuda.is_available() and c.ngpu > 0) else "cpu")
-                # device = "cpu"
-                # netG = netG.to(device)
-                # if ('cuda' in str(device)) and (c.ngpu > 1):
-                #     netG = nn.DataParallel(netG, list(range(c.ngpu))).to(device)
-                # netG.load_state_dict(torch.load(f"{c.path}/Gen.pt"))
                 s = 16
-                epsilon = 0.01
                 plt.close('all')
                 noise = torch.randn(1, 100, s, s)
-                print(noise.shape)
                 baseline = netG(noise)[0, 0]
-                print(baseline.shape)
-                mses = []
                 for c in range(s-10):
                     st = s//2-c
                     noise[:,:,st:-st,st:-st] = torch.randn(1, 100, c*2, c*2)
@@ -133,23 +171,26 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                 plt.savefig('analysis/seed.png')
                 plt.savefig('analysis/seed.eps', transparent=True)
             if generate:
-                axRectAll = fig.add_subplot(gs[0,1:])
-                axRectAll.annotate('G opt.', xy=(1.1, 0.5), xytext=(0, 0),
+                axRectAll = fig.add_subplot(gsDATA[0,:])
+                # axRectAll = fig.add_subplot(gs[0,2:])
+                axRectAll.annotate('G opt', xy=(-0.015, 0.4), xytext=(0, 0), rotation=90,
                         xycoords='axes fraction', textcoords='offset points',
-                        size='large', ha='center', va='baseline')
-                axRectAll.set_axis_off()
+                        size='large', ha='center', va='baseline', zorder=1000)
+                axRectAll.axis('off')
                 for i in range(2):
-                    axRECT = fig.add_subplot(gs[tag1_index,i+1])
+                    axRECT = fig.add_subplot(gsDATA[tag1_index,i])
+                    # axRECT = fig.add_subplot(gs[tag1_index,i+2])
                     img = worker.generate(save_path=f'analysis/{tag1}_{i}', border=True)
+                    np.save('test.npy',img[0,0].detach().cpu().flatten())
                     p = util.post_process(img,c)[0].permute(1,2,0).numpy()
                     img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0))
                     axRECT.imshow(img, cmap='gray')
                     axRECT.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
                     axRECT.set_title(f'Seed {i+1}')
                 fig.tight_layout()
-                fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
-                fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', transparent=True)
-                fig.savefig(f'analysis/{tag1}_{tag2}.eps', transparent=True)
+                fig.savefig(f'analysis/{tag1}_{tag2}.png', bbox_inches='tight', transparent=False)
+                fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', bbox_inches='tight',  transparent=True)
+                fig.savefig(f'analysis/{tag1}_{tag2}.eps', bbox_inches='tight',  transparent=True)
 
             if metric_compare and not load:
                 rect_list_rand = []
@@ -157,15 +198,24 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                 for i in range(samples):
                     for ls, delta in zip([rect_list_rand, rect_list_fixed],['rand',None]):
                         im = worker.generate(delta=delta)[0].cpu()
-                        im = (torch.argmax(im, dim=0))
+                        if c.image_type == 'n-phase':
+                            im = (torch.argmax(im, dim=0))
+                        elif c.image_type == 'grayscale':
+                            im = im[0]
+                        elif c.image_type == 'colour':
+                            im = util.rgb2gray(im.permute(1,2,0))
                         x,y = im.shape
                         im = im[16:-16,16:-16,]
                         ph = np.unique(im)
-                        vfs = ()
-                        for p in ph:
-                            l = im==p
-                            vfs = vfs + (l.float().mean().item(),)
-                        ls.append(vfs)
+                        if c.image_type == 'n-phase':
+                            vfs = ()
+                            for p in ph:
+                                l = im==p
+                                vfs = vfs + (l.float().mean().item(),)
+                            ls.append(vfs)
+                        else:
+                            ls.append(im.flatten().tolist())
+
 
             if borders:
                 rect_im = worker.generate()
@@ -225,23 +275,26 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                 
 
             if generate:
-                axPolyAll = fig.add_subplot(gs[1,1:])
-                axPolyAll.annotate('z opt.', xy=(1.1, 0.5), xytext=(0, 0),
+                axPolyAll = fig.add_subplot(gsDATA[1,:])
+                # axPolyAll = fig.add_subplot(gs[1,2:])
+                axPolyAll.annotate('z opt', xy=(-0.015, 0.4), xytext=(0, 0), rotation=90,
                         xycoords='axes fraction', textcoords='offset points',
                         size='large', ha='center', va='baseline')
                 axPolyAll.set_axis_off()
                 for i in range(2):
-                    axPOLY = fig.add_subplot(gs[tag2_index,i+1])
+                    axPOLY = fig.add_subplot(gsDATA[tag2_index,i])
+                    # axPOLY = fig.add_subplot(gs[tag2_index,i+2])
                     img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=10000)
+                    np.save('test2.npy',img[0,0].detach().cpu().flatten())
                     img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0).detach())
                     axPOLY.imshow(img, cmap='gray')
                     axPOLY.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
                     # axPOLY.set_title(f'Seed {i+1}')
                 fig.tight_layout()
-                plt.subplots_adjust(hspace=0)
-                fig.savefig(f'analysis/{tag1}_{tag2}.png', transparent=False)
-                fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', transparent=True)
-                fig.savefig(f'analysis/{tag1}_{tag2}.eps', transparent=True)
+                # plt.subplots_adjust(hspace=0)
+                fig.savefig(f'analysis/{tag1}_{tag2}.png', bbox_inches='tight', transparent=False)
+                fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', bbox_inches='tight', transparent=True)
+                fig.savefig(f'analysis/{tag1}_{tag2}.eps', bbox_inches='tight', transparent=True)
 
             if metric_compare:
                 if not load:
@@ -250,19 +303,29 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                     for i in range(samples):
                         for opt_iters in [0,10000]:
                             im = worker.generate(opt_iters=opt_iters)[0].detach().cpu()
-                            im = (torch.argmax(im, dim=0))
+                            if c.image_type == 'n-phase':
+                                im = (torch.argmax(im, dim=0))
+                            elif c.image_type == 'grayscale':
+                                im = im[0]
+                            elif c.image_type == 'colour':
+                                im = util.rgb2gray(im.permute(1,2,0))
                             x,y = im.shape
                             im = im[(x-lx)//2:(x+lx)//2,(y-ly)//2:(y+ly)//2,]
                             ph = np.unique(im)
-                            vfs = ()
-                            for p in ph:
-                                i = im==p
-                                vfs = vfs + (i.float().mean().item(),)
-                            if opt_iters>0:
-                                poly_list_opt.append(vfs)
+                            if c.image_type == 'n-phase':
+                                vfs = ()
+                                for p in ph:
+                                    i = im==p
+                                    vfs = vfs + (i.float().mean().item(),)
+                                if opt_iters>0:
+                                    poly_list_opt.append(vfs)
+                                else:
+                                    poly_list_unopt.append(vfs)
                             else:
-                                poly_list_unopt.append(vfs)
-
+                                if opt_iters>0:
+                                    poly_list_opt.append(im.flatten().tolist())
+                                else:
+                                    poly_list_unopt.append(im.flatten().tolist())
 
                     vfs_dict = {}
                     type_list = ['Real', 'G rand', 'G fixed', 'z opt', 'z unopt']
@@ -271,21 +334,23 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                     for i, ls in enumerate([real_list, rect_list_rand, rect_list_fixed, poly_list_opt, poly_list_unopt]):
                         label = type_list[i]
                         vfs_dict[label] = {}
-                        if label =='Real':
-                            vfs_dict['Real']['Total'] = {}
-                        for j, ph in enumerate(['Phase 1', "Phase 2", "Phase 3"]):
-                            vfs_dict[label][ph] = [a[j] for a in ls]
-                            labels.append(label+' '+ph)
-                            data.append([a[j] for a in ls])
-                            if ls == real_list:
-                                vfs_dict['Real']['Total'][ph] = real_vfs[j]
-                    with open(f'analysis/vfs_{tag1}_{tag2}_analysis.json', 'w') as fp:
+                        if c.image_type == 'n-phase':
+                            if label =='Real':
+                                vfs_dict['Real']['Total'] = {}
+                            for j, ph in enumerate(['Phase 1', "Phase 2", "Phase 3"]):
+                                vfs_dict[label][ph] = [a[j] for a in ls]
+                                labels.append(label+' '+ph)
+                                data.append([a[j] for a in ls])
+                                if ls == real_list:
+                                    vfs_dict['Real']['Total'][ph] = real_vfs[j]
+                        else:
+                            vfs_dict[label] = ls
+                    with open(f'analysis/{tag1}_{tag2}_metric_analysis.json', 'w') as fp:
                                 json.dump(vfs_dict, fp)
                 if load:
                     data = []
                     labels = []
-                    colours = []
-                plot_vfs(tag1, tag2, data=data, labels=labels, load=load)
+                plot_vfs(tag1, tag2, data=data, image_type=c.image_type, labels=labels, load=load)
             
             if borders:
                 poly_im = worker.generate()
@@ -329,6 +394,7 @@ def plot_z_span(worker, tag2):
     kl_loss = nn.KLDivLoss(reduction="batchmean")
     inpaints = []
     mses = []
+    kls = []
     for i in range(int(10000)):
         raw = netG(noise[0])
         loss = (raw - target)**2
@@ -338,8 +404,8 @@ def plot_z_span(worker, tag2):
         loss.backward()
         opt.step()
         mses.append(loss_copy.mean(dim=(1,2,3)).min().detach().cpu())
-        # Isaac to Steve - is this MSE an average over only the pixels that are valid? i.e. sum of loss / #pixels in the mask?
-        loss_kl = worker.c.opt_kl_coeff*kl_loss(noise[0], torch.randn_like(noise[0]))
+        kl = kl_loss(noise[0], torch.randn_like(noise[0]))
+        loss_kl = worker.c.opt_kl_coeff*kl
         loss_kl.backward()
         opt.step()
         with torch.no_grad():
@@ -363,7 +429,7 @@ def plot_z_span(worker, tag2):
     im_10000 = inpaints[4]
 
     fig = plt.figure()
-    gs = GridSpec(2,5)
+    gs = gridspec.GridSpec(2,5)
     ax_0 = fig.add_subplot(gs[0,0])
     ax_10 = fig.add_subplot(gs[0,1])
     ax_100 = fig.add_subplot(gs[0,2])
@@ -390,8 +456,8 @@ def plot_z_span(worker, tag2):
     fig.savefig(f'analysis/{tag2}_zspan.eps', transparent=True)
 
 
-def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
-    with open(f'analysis/vfs_{tag1}_{tag2}_analysis.json', 'r') as fp:
+def plot_vfs(tag1, tag2, image_type='n-phase', data=None, labels=None, load=True):
+    with open(f'analysis/{tag1}_{tag2}_metric_analysis.json', 'r') as fp:
         loaded = json.load(fp)
     colours = []
     labels = []
@@ -403,123 +469,174 @@ def plot_vfs(tag1, tag2, data=None, labels=None, load=True):
     data_z_unopt = []
     data_z_opt = []
     phases = []
-    key_list = loaded[list(loaded.keys())[1]].keys()
+    if image_type=='n-phase':
+        key_list = loaded[list(loaded.keys())[1]].keys()
 
     # KS test on each phase
     ks_test_res = {}
     gt = loaded['Real']
     for m in loaded.keys():
         ks_test_res[m] = {}
-        for p in loaded[m].keys():
-            if p!='Total':
-                p_val = ks_2samp(gt[p], loaded[m][p])[-1]
-                ks_test_res[m][p] = f'{p_val:.2g}'
+        if image_type=='n-phase':
+            for p in loaded[m].keys():
+                if p!='Total':
+                    p_val = ks_2samp(gt[p], loaded[m][p])[-1]
+                    ks_test_res[m][p] = f'{p_val:.2g}'
+        else:
+            p_val = ks_2samp(np.array(gt).flatten(), np.array(loaded[m]).flatten())[-1]
+            ks_test_res[m] = f'{p_val:.2g}'
+
     with open(f'analysis/vf_ks_{tag1}_{tag2}.json', 'w') as f:
         json.dump(ks_test_res, f)
-    ks_df = pd.DataFrame(ks_test_res)
-    with open(f"analysis/vf_ks_{tag1}_{tag2}.tex", "w") as f:
-        l = ks_df.to_latex(buf=f, bold_rows=True,label='vf_ks', index=False)
+    if image_type=='n-phase':
+        ks_df = pd.DataFrame(ks_test_res)
+        with open(f"analysis/vf_ks_{tag1}_{tag2}.tex", "w") as f:
+            l = ks_df.to_latex(buf=f, bold_rows=True,label='vf_ks', index=False)
+
+    if image_type=='n-phase':
+        for j, k2 in enumerate(key_list):
+            labels.append('Real')
+            data_r.append(loaded['Real'][k2])
+            data_r_total.append(loaded['Real']['Total'][k2])
+
+            labels.append('G opt')
+            data_G_fixed.append(loaded['G fixed'][k2])
+            data_G_rand.append(loaded['G rand'][k2])
+
+            data_z_unopt.append(loaded['z unopt'][k2])
+            data_z_opt.append(loaded['z opt'][k2])
+            labels.append('z opt')
+
+            colours.append(colours_list[j])
+            phases.append(k2)
+
+        fig, ax = plt.subplots()
+        parts_r = ax.violinplot(data_r, showextrema=False, showmeans=True, positions=[1,4,7])
+        parts_G_fixed = ax.violinplot(data_G_fixed, showextrema=False, showmeans=True, positions=[2,5,8])
+        parts_G_rand = ax.violinplot(data_G_rand, showextrema=False, showmeans=True, positions=[2,5,8])
+        parts_z_unopt = ax.violinplot(data_z_unopt, showextrema=False, showmeans=True, positions=[3,6,9])
+        parts_z_opt = ax.violinplot(data_z_opt, showextrema=False, showmeans=True, positions=[3,6,9])
+    
+        for i, pc in enumerate(parts_r['bodies']):
+            pc.set_facecolor(colours[i])
+            pc.set_alpha(1)
 
 
-    for j, k2 in enumerate(key_list):
-        labels.append('Real')
-        data_r.append(loaded['Real'][k2])
-        data_r_total.append(loaded['Real']['Total'][k2])
+        # Make G opts half violins
+        for i, b in enumerate(parts_G_rand['bodies']):
+            # get the center
+            m = np.mean(b.get_paths()[0].vertices[:, 0])
+            # modify the paths to not go further right than the center
+            b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], -np.inf, m)
+            b.set_facecolor(colours[i])
+            b.set_edgecolor('white')
+            b.set_alpha(1)
 
-        labels.append('G opt')
-        data_G_fixed.append(loaded['G fixed'][k2])
-        data_G_rand.append(loaded['G rand'][k2])
+        for j in parts_G_rand['cmeans'].get_paths():
+            m = np.mean(j.vertices[:,0])
+            j.vertices[:,0] = np.clip(j.vertices[:,0], -np.inf, m)
 
-        data_z_unopt.append(loaded['z unopt'][k2])
-        data_z_opt.append(loaded['z opt'][k2])
-        labels.append('z opt')
+        for i, b in enumerate(parts_G_fixed['bodies']):
+            # get the center
+            m = np.mean(b.get_paths()[0].vertices[:, 0])
+            # modify the paths to not go further right than the center
+            b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], m, np.inf)
+            b.set_facecolor(colours[i])
+            b.set_edgecolor('white')
+            b.set_alpha(1)
 
-        colours.append(colours_list[j])
-        phases.append(k2)
+        for j in parts_G_fixed['cmeans'].get_paths():
+            m = np.mean(j.vertices[:,0])
+            j.vertices[:,0] = np.clip(j.vertices[:,0], m, np.inf)
+
+            # Make z opts half violins
+        for i, b in enumerate(parts_z_unopt['bodies']):
+            # get the center
+            m = np.mean(b.get_paths()[0].vertices[:, 0])
+            # modify the paths to not go further right than the center
+            b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], -np.inf, m)
+            b.set_facecolor(colours[i])
+            b.set_edgecolor('white')
+            b.set_alpha(1)
             
-    fig, ax = plt.subplots()
-    parts_r = ax.violinplot(data_r, showextrema=False, showmeans=True, positions=[1,4,7])
-    parts_G_fixed = ax.violinplot(data_G_fixed, showextrema=False, showmeans=True, positions=[2,5,8])
-    parts_G_rand = ax.violinplot(data_G_rand, showextrema=False, showmeans=True, positions=[2,5,8])
-    parts_z_unopt = ax.violinplot(data_z_unopt, showextrema=False, showmeans=True, positions=[3,6,9])
-    parts_z_opt = ax.violinplot(data_z_opt, showextrema=False, showmeans=True, positions=[3,6,9])
-    
-    for i, pc in enumerate(parts_r['bodies']):
-        pc.set_facecolor(colours[i])
-        pc.set_alpha(1)
+        for j in parts_z_unopt['cmeans'].get_paths():
+            m = np.mean(j.vertices[:,0])
+            j.vertices[:,0] = np.clip(j.vertices[:,0], -np.inf, m)
 
+        for i, b in enumerate(parts_z_opt['bodies']):
+            # get the center
+            m = np.mean(b.get_paths()[0].vertices[:, 0])
+            # modify the paths to not go further right than the center
+            b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], m, np.inf)
+            b.set_facecolor(colours[i])
+            b.set_edgecolor('white')
+            b.set_alpha(1)
 
-    # Make G opts half violins
-    for i, b in enumerate(parts_G_rand['bodies']):
-        # get the center
-        m = np.mean(b.get_paths()[0].vertices[:, 0])
-        # modify the paths to not go further right than the center
-        b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], -np.inf, m)
-        b.set_facecolor(colours[i])
-        b.set_edgecolor('white')
-        b.set_alpha(1)
-
-    for j in parts_G_rand['cmeans'].get_paths():
-        m = np.mean(j.vertices[:,0])
-        j.vertices[:,0] = np.clip(j.vertices[:,0], -np.inf, m)
-
-    for i, b in enumerate(parts_G_fixed['bodies']):
-        # get the center
-        m = np.mean(b.get_paths()[0].vertices[:, 0])
-        # modify the paths to not go further right than the center
-        b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], m, np.inf)
-        b.set_facecolor(colours[i])
-        b.set_edgecolor('white')
-        b.set_alpha(1)
-
-    for j in parts_G_fixed['cmeans'].get_paths():
-        m = np.mean(j.vertices[:,0])
-        j.vertices[:,0] = np.clip(j.vertices[:,0], m, np.inf)
-
-        # Make z opts half violins
-    for i, b in enumerate(parts_z_unopt['bodies']):
-        # get the center
-        m = np.mean(b.get_paths()[0].vertices[:, 0])
-        # modify the paths to not go further right than the center
-        b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], -np.inf, m)
-        b.set_facecolor(colours[i])
-        b.set_edgecolor('white')
-        b.set_alpha(1)
+        for j in parts_z_opt['cmeans'].get_paths():
+            m = np.mean(j.vertices[:,0])
+            j.vertices[:,0] = np.clip(j.vertices[:,0], m, np.inf)
         
-    for j in parts_z_unopt['cmeans'].get_paths():
-        m = np.mean(j.vertices[:,0])
-        j.vertices[:,0] = np.clip(j.vertices[:,0], -np.inf, m)
+        for k in [parts_r, parts_G_fixed, parts_G_rand, parts_z_opt, parts_z_unopt]:
+            k['cmeans'].set_edgecolor('white')
 
-    for i, b in enumerate(parts_z_opt['bodies']):
-        # get the center
-        m = np.mean(b.get_paths()[0].vertices[:, 0])
-        # modify the paths to not go further right than the center
-        b.get_paths()[0].vertices[:, 0] = np.clip(b.get_paths()[0].vertices[:, 0], m, np.inf)
-        b.set_facecolor(colours[i])
-        b.set_edgecolor('white')
-        b.set_alpha(1)
+        patches = []
+        phs = []
+        phs = ['pore', 'metal', 'ceramic']
 
-    for j in parts_z_opt['cmeans'].get_paths():
-        m = np.mean(j.vertices[:,0])
-        j.vertices[:,0] = np.clip(j.vertices[:,0], m, np.inf)
-    
-    for k in [parts_r, parts_G_fixed, parts_G_rand, parts_z_opt, parts_z_unopt]:
-        k['cmeans'].set_edgecolor('white')
+        for p, c in zip(pd.unique(phases),pd.unique(colours)):
+            patches.append(mpatches.Patch(color=c, alpha=1))
+            # phs.append(p)
+        if image_type == 'n-phase':
+            ax.legend(patches, phs)
+        ax.set_xticks(np.arange(1,len(labels)+1))
+        ax.set_xticklabels(labels)
 
-    patches = []
-    phs = []
-    phs = ['pore', 'metal', 'ceramic']
+        ax.set_ylabel('Volume fraction')
+    else:
+        bins = 50
+        alpha = 0.5
+        orientation = 'vertical'
+        labels.append('Real')
+        data_r.append(np.array(loaded['Real']).flatten())
+        labels.append('G opt')
+        data_G_fixed.append(np.array(loaded['G fixed']).flatten())
+        data_G_rand.append(np.array(loaded['G rand']).flatten())
+        labels.append('z opt')
+        data_z_unopt.append(np.array(loaded['z unopt']).flatten())
+        data_z_opt.append(np.array(loaded['z opt']).flatten())
+        colours.append(colours_list[0])
+        phases.append('None')
 
-    for p, c in zip(pd.unique(phases),pd.unique(colours)):
-        patches.append(mpatches.Patch(color=c, alpha=1))
-        # phs.append(p)
-    ax.legend(patches, phs)
-    ax.set_xticks(np.arange(1,len(labels)+1))
-    ax.set_xticklabels(labels)
+        fig = plt.figure(dpi=1200)
+        gs = gridspec.GridSpec(3,1)
+        axT = fig.add_subplot(gs[:])
+        axT.set_ylabel('Density')
+        axT.axis('off')
+        # axT.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
+        ax1 = fig.add_subplot(gs[0])
+        ax2 = fig.add_subplot(gs[1])
+        ax3 = fig.add_subplot(gs[2])
+        # parts_r = ax.violinplot(data_r, showextrema=False, showmeans=True, positions=[1])
+        # parts_G_fixed = ax.violinplot(data_G_fixed, showextrema=False, showmeans=True, positions=[2])
+        # parts_G_rand = ax.violinplot(data_G_rand, showextrema=False, showmeans=True, positions=[2])
+        # parts_z_unopt = ax.violinplot(data_z_unopt, showextrema=False, showmeans=True, positions=[3])
+        # parts_z_opt = ax.violinplot(data_z_opt, showextrema=False, showmeans=True, positions=[3])
+        parts_r = ax1.hist(data_r, bins=bins, label = 'GT', color=colours_list[0], alpha=1, orientation=orientation, density=True)
+        parts_G_fixed = ax2.hist(data_G_fixed, bins=bins, label='G fixed', color=colours_list[1], alpha=alpha, orientation=orientation, density=True)
+        parts_G_rand = ax2.hist(data_G_rand, bins=bins, label='G rand', color=colours_list[2], alpha=alpha, orientation=orientation, density=True)
+        parts_z_unopt = ax3.hist(data_z_unopt, bins=bins, label='z unopt', color=colours_list[1], alpha=alpha, orientation=orientation, density=True)
+        parts_z_opt = ax3.hist(data_z_opt, bins=bins, label='z opt', color=colours_list[2], alpha=alpha, orientation=orientation, density=True)
+        ax3.set_xlabel('Pixel value')
 
-    ax.set_ylabel('Volume fraction')
+        for ax in [ax2,ax1]:
+            ax.legend()
+            ax.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
+        ax3.legend()
+        ax3.tick_params(axis='y', which='both', left=False, right=False, labelleft=False)
+
+    plt.tight_layout()
     plt.savefig(f'analysis/{tag1}_{tag2}_vf_violinplot.eps', transparent=True)
-    plt.savefig(f'analysis/{tag1}_{tag2}_vf_violinplot_transparent.png', transparent=True)
+    plt.savefig(f'analysis/{tag1}_{tag2}_vf_violinplot_transparent.png', transparent=True, dpi=1200)
     plt.savefig(f'analysis/{tag1}_{tag2}_vf_violinplot.png')
 
 
@@ -537,14 +654,18 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
     inpaint_zeros[size:-size,size:-size] = 0
 
     inpaint_noise = gt.copy()
-    inpaint_noise[size:-size,size:-size] = np.random.uniform(size=(l,l,1))
+    
 
-    # rect_im = util.post_process(rect_im, c)
-    # poly_im = util.post_process(poly_im, c)
-    rect_im = torch.argmax(rect_im, dim=1)
-    poly_im = torch.argmax(poly_im, dim=1)
-    rect_im = torch.nn.functional.one_hot(rect_im).permute(0, 3, 1, 2)
-    poly_im = torch.nn.functional.one_hot(poly_im).permute(0, 3, 1, 2)
+    if c.image_type=='n-phase':
+        inpaint_noise[size:-size,size:-size] = torch.nn.functional.one_hot(torch.argmax(torch.rand(size=(l,l,gt.shape[2])),dim=2))
+        rect_im = torch.argmax(rect_im, dim=1)
+        poly_im = torch.argmax(poly_im, dim=1)
+        rect_im = torch.nn.functional.one_hot(rect_im).permute(0, 3, 1, 2)
+        poly_im = torch.nn.functional.one_hot(poly_im).permute(0, 3, 1, 2)
+    else:
+        inpaint_noise[size:-size,size:-size] = np.random.uniform(size=(l,l,gt.shape[2]))
+        rect_im = util.post_process(rect_im, c)
+        poly_im = util.post_process(poly_im, c)
 
     g_opt_im = gt.copy()
     z_opt_im = gt.copy()
@@ -552,7 +673,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
     z_opt_im[size:-size, size:-size]=poly_im[0].permute(1,2,0)[size:-size,size:-size]
     diffs = []
     data_list = [gt, g_opt_im, z_opt_im]
-    name_list = ['Ground truth', 'G opt.', 'z opt.']
+    name_list = ['Ground truth', 'G opt', 'z opt']
     axes_list = [[0],[1],[2]]
 
     maskl = np.zeros_like(data_list[0])
@@ -567,7 +688,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
     mask = mask>0
     # plot comparison of GT and two methods
     fig = plt.figure()
-    gs = GridSpec(1,3)
+    gs = gridspec.GridSpec(1,3)
     for d, a, n in zip(data_list, axes_list, name_list):
         if len(a)>1:
             x,y = a
@@ -627,14 +748,29 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
         mask = maskl + maskr + masku + maskd
         mask = mask>0
         fig = plt.figure()
-        gs = GridSpec(2,2)
+        gs = gridspec.GridSpec(2,2)
         for d, a, n in zip(data_list, axes_list, name_list):
             if len(a)>1:
                 x,y = a
                 ax = fig.add_subplot(gs[x,y])
             else:
                 ax = fig.add_subplot(gs[:,a[0]])
-            ax.imshow(d, cmap='gray')
+            if c.image_type == 'n-phase':
+                phases = np.arange(c.n_phases)
+                color = iter(cm.get_cmap(c.cm)(np.linspace(0, 1, c.n_phases)))
+                # color = iter([[0,0,0],[0.5,0.5,0.5], [1,1,1]])
+                img = torch.argmax(torch.tensor(d.copy()), dim=2)
+                if len(phases) > 10:
+                    raise AssertionError('Image not one hot encoded.')
+                x, y = img.shape
+                out = torch.zeros((3, x, y))
+                for i, ph in enumerate(phases):
+                    col = next(color)
+                    col = torch.tile(torch.Tensor(col[0:3]).unsqueeze(1).unsqueeze(1), (x,y))
+                    out = torch.where((img == ph), col, out)
+                ax.imshow(out.permute(1,2,0))
+            else:
+                ax.imshow(d, cmap='gray')
             ax.set_title(n)
             ax.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
             plt.tight_layout()

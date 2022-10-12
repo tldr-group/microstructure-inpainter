@@ -18,7 +18,6 @@ def check_existence(tag,root):
     :return: True for overwrite, False for load
     :rtype: [type]
     """
-    root = f'runs/{tag}'
     check_D = os.path.exists(f'{root}/runs/{tag}/Disc.pt')
     check_G = os.path.exists(f'{root}/runs/{tag}/Gen.pt')
     if check_G or check_D:
@@ -327,10 +326,9 @@ def make_noise(noise, device, mask_noise=False, delta=[1,1]):
     # zeros in mask are fixed, ones are random
     mask = torch.zeros_like(noise).to(device)
     _, _, x, y = mask.shape
-    dx = delta[0]//2
-    dy = delta[1]//2
-    # 
     if mask_noise:
+        dx = torch.div(delta[0],2, rounding_mode='floor')
+        dy = torch.div(delta[1],2, rounding_mode='floor')
         if dx>0 and dy>0:
             mask[:,:,x//2-dx:x//2+dx,y//2-dy:y//2+dy] = 1
         elif dx==0:
@@ -341,6 +339,7 @@ def make_noise(noise, device, mask_noise=False, delta=[1,1]):
         noise = noise*(mask==0)+rand
     else:
         noise = torch.randn_like(noise).to(device)
-    # plt.imshow(mask[0,0].detach().cpu().numpy())
-    # plt.savefig('noise.png')
     return noise
+
+def rgb2gray(rgb):
+    return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
