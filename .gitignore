@@ -9,3 +9,4 @@ data/temp*
 analysis
 build
 dist
+.DS_Store
