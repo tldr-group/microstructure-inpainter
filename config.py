@@ -73,7 +73,7 @@ class Config():
 
 class ConfigPoly(Config):
     def __init__(self, tag, root):
-        super(ConfigPoly, self).__init__(tag, root='')
+        super(ConfigPoly, self).__init__(tag, root=root)
         self.frames = 100
         # optimisation parameters
         if self.cli:
