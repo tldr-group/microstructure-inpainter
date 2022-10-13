@@ -2,13 +2,16 @@
 
 
 block_cipher = None
-
+added_data = [
+    ("style.qss", "."),
+    ('data', 'data'),
+]
 
 a = Analysis(
     ['build_pyi.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=added_data,
     hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],
