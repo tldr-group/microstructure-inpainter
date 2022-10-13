@@ -1,7 +1,0 @@
-name: inpainting
-channels:
-  - defaults
-dependencies:
-  - python=3.8
-  - cudatoolkit=11.3
-  - pytorch
