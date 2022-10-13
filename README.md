@@ -94,6 +94,6 @@ When evaluating a trained model, the params and model config are loaded from fil
 
 ## Roadmap
 
-[ ] Windows single exe
-[ ] Save and load trained models
-[ ] Implement both methods for both shapes
+- [ ] Windows single exe
+- [ ] Save and load trained models
+- [ ] Implement both methods for both shapes

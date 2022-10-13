@@ -6,6 +6,7 @@ block_cipher = None
 added_data = [
     ("style.qss", "."),
     ('data', 'data'),
+    ("assets","assets")
 ]
 
 a = Analysis(
