@@ -23,7 +23,7 @@ _Note: cudatoolkit version and pytorch install depends on system, see [PyTorch i
 conda create --name inpainter
 conda activate inpainter
 conda install pytorch torchvision -c pytorch
-conda install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 If you are planning to use Weights and Biases to track training runs create a .env file to hold secrets, the .env file must include
