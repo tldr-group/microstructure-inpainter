@@ -8,6 +8,16 @@ Microstructure inpainter is a python app for inpainting material science microst
 
 ## Quickstart
 
+To run from executable file. Download the file specific for your operating system.
+
+MacOS users - unzip, and then double click the icon and allow access to folders.
+
+Linux users - unzip and then run from command line
+
+```
+./path/to/inpainter
+```
+
 To run locally.
 
 Prerequisites:
@@ -82,38 +92,8 @@ By entering `'o'` you will overwrite the existing models, deleting their saved p
 
 When evaluating a trained model, the params and model config are loaded from files. Models are saved with their training tag, use this tag to evaluate specific models.
 
-## Folder structure
+## Roadmap
 
-```
-microstructure-inpainter
- ┣ src
- ┃ ┣ __init__.py
- ┃ ┣ networks.py
- ┃ ┣ test.py
- ┃ ┣ train_poly.py
- ┃ ┣ train_rect.py
- ┃ ┣ util_cli.py
- ┃ ┗ util.py
- ┣ data
- ┃ ┣ example_inpainting.png
- ┃ ┣ sofc.png
- ┃ ┣ steel_micro237.png
- ┃ ┗ terracotta_micro177.png
- ┣ assets
- ┃ ┣ ariblk.ttf
- ┃ ┣ gif.py
- ┃ ┣ inpainting-logo.png
- ┃ ┗ movie.gif
- ┣ .gitignore
- ┣ config.py
- ┣ build_pyi.py
- ┣ build_pyi_mac.spec
- ┣ build_pyi_ubuntu.spec
- ┣ LICENSE.txt
- ┣ run_analysis.py
- ┣ run_cli.py
- ┣ run_gui.py
- ┣ README.md
- ┣ style.qss
- ┗ requirements.txt
-```
+[ ] Windows single exe
+[ ] Save and load trained models
+[ ] Implement both methods for both shapes
