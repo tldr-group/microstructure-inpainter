@@ -170,6 +170,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                 plt.ylabel('MSE')
                 plt.savefig('analysis/seed.png')
                 plt.savefig('analysis/seed.eps', transparent=True)
+                plt.savefig('analysis/seed.pdf', transparent=True)
             if generate:
                 axRectAll = fig.add_subplot(gsDATA[0,:])
                 # axRectAll = fig.add_subplot(gs[0,2:])
@@ -181,7 +182,6 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                     axRECT = fig.add_subplot(gsDATA[tag1_index,i])
                     # axRECT = fig.add_subplot(gs[tag1_index,i+2])
                     img = worker.generate(save_path=f'analysis/{tag1}_{i}', border=True)
-                    np.save('test.npy',img[0,0].detach().cpu().flatten())
                     p = util.post_process(img,c)[0].permute(1,2,0).numpy()
                     img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0))
                     axRECT.imshow(img, cmap='gray')
@@ -285,7 +285,6 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                     axPOLY = fig.add_subplot(gsDATA[tag2_index,i])
                     # axPOLY = fig.add_subplot(gs[tag2_index,i+2])
                     img = worker.generate(save_path=f'analysis/{tag2}_{i}', border=True, opt_iters=10000)
-                    np.save('test2.npy',img[0,0].detach().cpu().flatten())
                     img = inpaint(gt, util.post_process(img,c)[0].permute(1,2,0).detach())
                     axPOLY.imshow(img, cmap='gray')
                     axPOLY.tick_params(axis='both', which='both', left=False, right=False, bottom=False, top=False, labelbottom=False, labelleft=False)
@@ -295,6 +294,7 @@ def main(tag1, tag2, generate=False, metric_compare=False, load=False, z_span=Fa
                 fig.savefig(f'analysis/{tag1}_{tag2}.png', bbox_inches='tight', transparent=False)
                 fig.savefig(f'analysis/{tag1}_{tag2}_transparent.png', bbox_inches='tight', transparent=True)
                 fig.savefig(f'analysis/{tag1}_{tag2}.eps', bbox_inches='tight', transparent=True)
+                fig.savefig(f'analysis/{tag1}_{tag2}.pdf', bbox_inches='tight', transparent=True)
 
             if metric_compare:
                 if not load:
@@ -702,6 +702,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
         fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis_transparent.png', transparent=True)
         fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis.png')
         fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis.eps', transparent=True)
+        fig.savefig(f'analysis/{tag1}_{tag2}_border_contiguity_analysis.pdf', transparent=True)
 
     for j, (d, a, n) in enumerate(zip(data_list, axes_list, name_list)):
         dl = np.roll(d, 1, axis=1)
@@ -777,6 +778,7 @@ def border_contiguity_analysis(tag1, tag2, c, rect_im, poly_im, poly_im_unopt, c
             fig.savefig('analysis/border_contiguity_analysis.png')
             fig.savefig('analysis/border_contiguity_analysis_transparent.png', transparent=True)
             fig.savefig('analysis/border_contiguity_analysis.eps', transparent=True)
+            fig.savefig('analysis/border_contiguity_analysis.pdf', transparent=True)
         
         for j, (d, a, n) in enumerate(zip(data_list, axes_list, name_list)):
             dl = np.roll(d, 1, axis=1)
